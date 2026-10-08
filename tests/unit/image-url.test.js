@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toJpgUrl, largestSrcsetUrl } from '../../lib/image-url.js';
+import { toJpgUrl, largestSrcsetUrl, largestJpegUrl } from '../../lib/image-url.js';
+import { sourceListJson } from '../fixtures/album-api.js';
 
 describe('toJpgUrl', () => {
   test('swaps .webp for .jpg and keeps the query', () => {
@@ -85,5 +86,42 @@ describe('largestSrcsetUrl', () => {
 
   test('tolerates extra whitespace and newlines between candidates', () => {
     assert.equal(largestSrcsetUrl('\n  https://x/a   240w ,\n\t https://x/b\t1920w\n', BASE), 'https://x/b');
+  });
+});
+
+describe('largestJpegUrl', () => {
+  const jpeg = (sourceSet) => JSON.stringify([{ mimeType: 'image/jpeg', sourceSet }]);
+
+  test('picks the widest jpeg from a webp + jpeg list', () => {
+    assert.equal(largestJpegUrl(sourceListJson('https://x', 'u')), 'https://x/u/orig/image_1920_k.jpg?cache=c');
+  });
+
+  test('picks the widest jpeg from an unordered set', () => {
+    const json = jpeg([{ width: 240, path: 'https://x/240.jpg' }, { width: 1920, path: 'https://x/1920.jpg' }]);
+    assert.equal(largestJpegUrl(json), 'https://x/1920.jpg');
+  });
+
+  test('returns a single-size jpeg', () => {
+    assert.equal(largestJpegUrl(jpeg([{ width: 240, path: 'https://x/240.jpg' }])), 'https://x/240.jpg');
+  });
+
+  test('returns null for invalid JSON, null and empty', () => {
+    for (const value of ['{', null, '']) {
+      assert.equal(largestJpegUrl(value), null);
+    }
+  });
+
+  test('returns null without a jpeg entry', () => {
+    const json = JSON.stringify([{ mimeType: 'image/webp', sourceSet: [{ width: 1920, path: 'https://x/a.webp' }] }]);
+    assert.equal(largestJpegUrl(json), null);
+  });
+
+  test('returns null for an empty jpeg set', () => {
+    assert.equal(largestJpegUrl(jpeg([])), null);
+  });
+
+  test('returns null for a non-http or relative path', () => {
+    assert.equal(largestJpegUrl(jpeg([{ width: 1920, path: 'javascript:alert(1)' }])), null);
+    assert.equal(largestJpegUrl(jpeg([{ width: 1920, path: '/u/a.jpg' }])), null);
   });
 });

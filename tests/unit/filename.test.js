@@ -7,6 +7,8 @@ import {
   extensionFromUrl,
   pickTitle,
   buildFilename,
+  folderSegment,
+  reserveUniqueName,
 } from '../../lib/filename.js';
 
 const IMAGE_URL = 'https://cdn.example.com/photos/image_1920_x.webp?cache=abc';
@@ -200,4 +202,87 @@ test('buildFilename truncates title to MAX_TITLE_LENGTH, not owner', () => {
   const owner = 'o'.repeat(100);
   const name = buildFilename({ owner, title: 't'.repeat(200), photoId: null, url: IMAGE_URL, date: DATE });
   assert.equal(name, `${owner}_${'t'.repeat(MAX_TITLE_LENGTH)}_${TS}.webp`);
+});
+
+test('folderSegment keeps umlauts and emoji, whitespace → -', () => {
+  assert.equal(folderSegment('Fotos von uns'), 'Fotos-von-uns');
+  assert.equal(folderSegment('Größe 😀 Spaß'), 'Größe-😀-Spaß');
+});
+
+test('folderSegment returns empty for null, undefined and empty', () => {
+  for (const value of [null, undefined, '']) {
+    assert.equal(folderSegment(value), '');
+  }
+});
+
+test('folderSegment returns empty for only forbidden chars', () => {
+  assert.equal(folderSegment('"/?'), '');
+});
+
+test('folderSegment normalises NFD to NFC', () => {
+  assert.equal(folderSegment('Mu\u0308nchen'), 'M\u00FCnchen');
+});
+
+test('folderSegment replaces / and ? and trims the trailing _', () => {
+  assert.equal(folderSegment('Sie/Er?'), 'Sie_Er');
+});
+
+test('folderSegment trims trailing spaces and dots', () => {
+  assert.equal(folderSegment('Sie '), 'Sie');
+  assert.equal(folderSegment('Nass...'), 'Nass');
+});
+
+test('folderSegment replaces only the ZWJ in an emoji sequence', () => {
+  assert.equal(folderSegment('👨\u200D👩\u200D👧'), '👨_👩_👧');
+});
+
+test('folderSegment suffixes Windows device names with _', () => {
+  for (const name of ['CON', 'nul', 'Com1', 'LPT9']) {
+    assert.equal(folderSegment(name), `${name}_`);
+  }
+});
+
+test('folderSegment keeps near misses of device names', () => {
+  for (const name of ['COM0', 'CONSOLE', 'LPT10']) {
+    assert.equal(folderSegment(name), name);
+  }
+});
+
+test('folderSegment caps at 80 code points', () => {
+  assert.equal(folderSegment('a'.repeat(79)), 'a'.repeat(79));
+  assert.equal(folderSegment('a'.repeat(80)), 'a'.repeat(80));
+  assert.equal(folderSegment('a'.repeat(81)), 'a'.repeat(80));
+});
+
+test('folderSegment keeps whole code points when the cut hits an emoji', () => {
+  assert.equal(folderSegment(`${'a'.repeat(79)}😀b`), `${'a'.repeat(79)}😀`);
+});
+
+test('reserveUniqueName returns a new name unchanged and records it', () => {
+  const taken = new Set();
+  assert.equal(reserveUniqueName('Aktuelles', taken), 'Aktuelles');
+  assert.ok(taken.has('aktuelles'));
+});
+
+test('reserveUniqueName numbers repeats from 2', () => {
+  const taken = new Set();
+  const names = ['a', 'a', 'a'].map((name) => reserveUniqueName(name, taken));
+  assert.deepEqual(names, ['a', 'a-2', 'a-3']);
+});
+
+test('reserveUniqueName compares case-insensitively', () => {
+  const taken = new Set();
+  reserveUniqueName('Aktuelles', taken);
+  assert.equal(reserveUniqueName('aktuelles', taken), 'aktuelles-2');
+});
+
+test('reserveUniqueName avoids a pre-seeded report name', () => {
+  assert.equal(reserveUniqueName('missing.txt', new Set(['missing.txt'])), 'missing.txt-2');
+});
+
+test('reserveUniqueName skips a numbered name already taken', () => {
+  const taken = new Set();
+  reserveUniqueName('name', taken);
+  reserveUniqueName('name-2', taken);
+  assert.equal(reserveUniqueName('name', taken), 'name-3');
 });
