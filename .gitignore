@@ -1,0 +1,10 @@
+node_modules/
+test-results/
+playwright-report/
+.playwright-cli/
+.claude/
+.idea/
+.DS_Store
+docs/agents/
+sandbox/
+ref/

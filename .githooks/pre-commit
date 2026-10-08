@@ -1,0 +1,3 @@
+#!/bin/sh
+# Blocks the commit unless lint + unit tests pass. E2E needs a headed Chrome, so it stays manual.
+npm test
