@@ -295,6 +295,30 @@ describe('jpg probe', () => {
     assert.match(result.filename, /\.webp$/);
   });
 
+  test('failing probe logs a warning without the URL', async () => {
+    fetchImpl = async () => {
+      throw new TypeError('Failed to fetch');
+    };
+
+    await handleActionClick(TAB);
+
+    assert.deepEqual(console.warn.mock.calls.map((call) => call.arguments), [['jpg probe failed']]);
+  });
+
+  test('suggests the webp filename after a fallback', async () => {
+    fetchImpl = async () => ({ ok: false, status: HTTP_NOT_FOUND });
+    let suggestion;
+    download = async ({ url }) => {
+      suggestion = determineFilename({ url, byExtensionId: OWN_EXTENSION_ID });
+      return DOWNLOAD_ID;
+    };
+
+    const result = await handleActionClick(TAB);
+
+    assert.match(result.filename, /\.webp$/);
+    assert.deepEqual(suggestion, { filename: result.filename, conflictAction: 'uniquify' });
+  });
+
   test('a jpg lightbox image downloads without a probe', async () => {
     const jpgOnly = { ...VALID_DATA, style: `background-image: url("${JPG_URL}")` };
     executeScript = async () => [{ result: jpgOnly }];

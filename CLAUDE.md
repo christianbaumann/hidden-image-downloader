@@ -14,6 +14,7 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - Extension code is ES modules: `background.js` is a module service worker importing `lib/*.js`. `eslint.config.js` lints root `*.js` and `lib/**/*.js` as modules with browser + `chrome` globals.
 - Chrome ignores the `filename` passed to `chrome.downloads.download()` while any other extension listens to `downloads.onDeterminingFilename` (e.g. MarkSnip, Video DownloadHelper). `background.js` therefore suggests its own filename in that event, only for downloads it started.
 - Functions injected via `chrome.scripting.executeScript({ func })` are serialised: keep them self-contained (no imports, no closures). Put parsing into pure `lib/` functions.
+- Lightbox `.webp` images: `background.js` probes the `.jpg` sibling with `HEAD` (5 s timeout) and falls back to the `.webp`. In production the probe goes to a host-permitted origin; in E2E it goes to `127.0.0.1`, which has no host permission, so the fixture server must send credentialed CORS headers (`Access-Control-Allow-Origin: <Origin>`, `Access-Control-Allow-Credentials: true`).
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
 ## Standing Orders

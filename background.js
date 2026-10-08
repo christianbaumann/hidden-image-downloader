@@ -68,7 +68,7 @@ async function firstAvailable(candidates) {
         return candidate;
       }
     } catch {
-      // Unreachable candidate: try the next one.
+      console.warn('jpg probe failed');
     }
   }
   return candidates.at(-1);
