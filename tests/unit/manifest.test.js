@@ -21,8 +21,12 @@ test('manifest registers background.js as module service worker', () => {
   assert.ok(existsSync(resolve(root, manifest.background.service_worker)));
 });
 
-test('manifest requests only scripting and downloads permissions', () => {
-  assert.deepEqual(manifest.permissions, ['scripting', 'downloads']);
+test('manifest requests only scripting, downloads and offscreen permissions', () => {
+  assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen']);
+});
+
+test('offscreen document exists', () => {
+  assert.ok(existsSync(resolve(root, 'offscreen.html')));
 });
 
 test('manifest grants host access to JoyClub and its image host', () => {

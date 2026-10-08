@@ -15,6 +15,10 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - Chrome ignores the `filename` passed to `chrome.downloads.download()` while any other extension listens to `downloads.onDeterminingFilename` (e.g. MarkSnip, Video DownloadHelper). `background.js` therefore suggests its own filename in that event, only for downloads it started.
 - Functions injected via `chrome.scripting.executeScript({ func })` are serialised: keep them self-contained (no imports, no closures). Put parsing into pure `lib/` functions.
 - Lightbox `.webp` images: `background.js` probes the `.jpg` sibling with `HEAD` (5 s timeout) and falls back to the `.webp`. In production the probe goes to a host-permitted origin; in E2E it goes to `127.0.0.1`, which has no host permission, so the fixture server must send credentialed CORS headers (`Access-Control-Allow-Origin: <Origin>`, `Access-Control-Allow-Credentials: true`).
+- Profile ZIP: `background.js` opens `offscreen.html` (reason `BLOBS`); `offscreen.js` fetches the photos, zips them with `lib/zip.js` and answers with a blob URL. The service worker downloads that URL via `chrome.downloads` (filename enforced in `onDeterminingFilename`) and closes the document once every ZIP download is `complete` or `interrupted`, since the blob URL dies with the document. Resuming an interrupted ZIP download therefore fails. Open and close calls run through one promise queue (`offscreenQueue`), so double clicks and a close racing a new job can't collide.
+- JoyClub writes `srcset` with bare commas (`a 1920w,b 1440w`). `largestSrcsetUrl` follows the HTML grammar: URLs are whitespace-free runs, descriptors end at the next comma.
+- JSZip is vendored as `vendor/jszip.min.js`, loaded by `offscreen.html` as a classic script (global `JSZip`). `tests/unit/vendor-jszip.test.js` pins it byte for byte to the npm devDependency.
+- Firefox has no `chrome.offscreen`; the profile ZIP needs another path there.
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
 ## Blueprint Repos

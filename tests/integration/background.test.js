@@ -1,4 +1,4 @@
-import { beforeEach, describe, mock, test } from 'node:test';
+import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const TAB = { id: 7 };
@@ -17,20 +17,69 @@ const VALID_DATA = {
   photoId: '1001',
   pageUrl: 'https://www.joyclub.de/profile/1.html',
 };
+const PHOTO_UUIDS = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+const PROFILE_DATA = {
+  owner: 'TestOwner',
+  pageUrl: 'https://www.joyclub.de/profile/1.html',
+  items: PHOTO_UUIDS.map((uuid) => ({
+    srcset: `https://image-user.feig-partner.de/${uuid}/orig/image_1920_k.webp?cache=c 1920w`,
+  })),
+};
+const BLOB_URL = 'blob:chrome-extension://own-extension-id/5f1c';
+const ZIP_DOWNLOAD_ID = 43;
+const UNRELATED_DOWNLOAD_ID = 99;
+const OFFSCREEN_READY_LIMIT = 50;
 
 const listeners = [];
 const filenameListeners = [];
+const changedListeners = [];
 let calls;
+let extracted;
 let executeScript;
 let download;
 let fetchImpl;
+let sendMessage;
+let zipResponse;
+let zipDownloadIds;
+let offscreenOpen;
+let offscreenCreating;
+let createDocument;
+let closeDocument;
 
 const record = (name) => async (details) => {
   calls.push([name, details]);
 };
 
 globalThis.chrome = {
-  runtime: { id: OWN_EXTENSION_ID },
+  runtime: {
+    id: OWN_EXTENSION_ID,
+    sendMessage: async (message) => {
+      calls.push(['sendMessage', message]);
+      return sendMessage(message);
+    },
+  },
+  offscreen: {
+    Reason: { BLOBS: 'BLOBS' },
+    hasDocument: async () => offscreenOpen,
+    createDocument: async (options) => {
+      calls.push(['createDocument', options]);
+      if (offscreenOpen || offscreenCreating) {
+        throw new Error('Only a single offscreen document may be created.');
+      }
+      offscreenCreating = true;
+      try {
+        await createDocument(options);
+        offscreenOpen = true;
+      } finally {
+        offscreenCreating = false;
+      }
+    },
+    closeDocument: async () => {
+      calls.push(['closeDocument', {}]);
+      await closeDocument();
+      offscreenOpen = false;
+    },
+  },
   action: {
     onClicked: { addListener: (listener) => listeners.push(listener) },
     setBadgeText: record('setBadgeText'),
@@ -45,6 +94,7 @@ globalThis.chrome = {
   },
   downloads: {
     onDeterminingFilename: { addListener: (listener) => filenameListeners.push(listener) },
+    onChanged: { addListener: (listener) => changedListeners.push(listener) },
     download: async (options) => {
       calls.push(['download', options]);
       return download(options);
@@ -62,6 +112,8 @@ const { handleActionClick } = await import('../../background.js');
 const callsNamed = (name) => calls.filter(([callName]) => callName === name).map(([, details]) => details);
 const lastTitle = () => callsNamed('setTitle').at(-1).title;
 const lastBadgeText = () => callsNamed('setBadgeText').at(-1).text;
+const injectedFunctions = () => callsNamed('executeScript').map(({ func }) => func.name);
+const fireDownloadChanged = (id, state) => changedListeners.forEach((listener) => listener({ id, state: { current: state } }));
 
 // Fires onDeterminingFilename like Chrome; returns the listener's suggestion or undefined.
 function determineFilename(item) {
@@ -75,9 +127,29 @@ function determineFilename(item) {
 beforeEach(() => {
   mock.restoreAll();
   calls = [];
-  executeScript = async () => [{ result: VALID_DATA }];
-  download = async () => DOWNLOAD_ID;
+  extracted = { extractLightboxData: VALID_DATA, extractProfileSliderData: PROFILE_DATA };
+  executeScript = async ({ func }) => [{ result: extracted[func.name] }];
+  zipDownloadIds = [];
+  download = async ({ url }) => {
+    if (url !== BLOB_URL) {
+      return DOWNLOAD_ID;
+    }
+    const id = ZIP_DOWNLOAD_ID + zipDownloadIds.length;
+    zipDownloadIds.push(id);
+    return id;
+  };
   fetchImpl = async () => ({ ok: true, status: HTTP_OK });
+  zipResponse = { url: BLOB_URL, added: 2, missing: [] };
+  sendMessage = async ({ action }) => {
+    if (!offscreenOpen) {
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    }
+    return action === 'ping' ? { ready: true } : zipResponse;
+  };
+  offscreenOpen = false;
+  offscreenCreating = false;
+  createDocument = async () => {};
+  closeDocument = async () => {};
   mock.method(console, 'warn', () => {});
 });
 
@@ -185,13 +257,14 @@ describe('handleActionClick', () => {
     assert.equal(callsNamed('download').length, 0);
   });
 
-  test('no lightbox shows "no image open in the lightbox"', async () => {
+  test('neither lightbox nor profile photos shows "no lightbox image or profile photos found"', async () => {
     executeScript = async () => [{ result: null }];
 
     assert.equal(await handleActionClick(TAB), null);
     assert.equal(lastBadgeText(), '!');
-    assert.match(lastTitle(), /no image open in the lightbox/);
+    assert.match(lastTitle(), /no lightbox image or profile photos found/);
     assert.equal(callsNamed('download').length, 0);
+    assert.equal(callsNamed('createDocument').length, 0);
   });
 
   test('missing image URL shows "image address not found"', async () => {
@@ -327,5 +400,222 @@ describe('jpg probe', () => {
 
     assert.equal(callsNamed('fetch').length, 0);
     assert.equal(result.url, JPG_URL);
+  });
+});
+
+describe('profile ZIP', () => {
+  beforeEach(() => {
+    extracted.extractLightboxData = null;
+  });
+
+  // Finishes every ZIP download so no open job leaks into the next test.
+  afterEach(async () => {
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await new Promise(setImmediate);
+  });
+
+  test('a lightbox image skips the profile extractor', async () => {
+    extracted.extractLightboxData = VALID_DATA;
+
+    await handleActionClick(TAB);
+
+    assert.deepEqual(injectedFunctions(), ['extractLightboxData']);
+  });
+
+  test('builds the ZIP offscreen and downloads its blob URL', async () => {
+    const result = await handleActionClick(TAB);
+
+    assert.deepEqual(injectedFunctions(), ['extractLightboxData', 'extractProfileSliderData']);
+    const [created] = callsNamed('createDocument');
+    assert.equal(created.url, 'offscreen.html');
+    assert.deepEqual(created.reasons, ['BLOBS']);
+    const messages = callsNamed('sendMessage');
+    assert.deepEqual(messages[0], { target: 'offscreen', action: 'ping' });
+    const build = messages.at(-1);
+    assert.equal(build.target, 'offscreen');
+    assert.equal(build.action, 'build-zip');
+    assert.deepEqual(build.entries.map(({ name }) => name), ['TestOwner_01_11111111.jpg', 'TestOwner_02_22222222.jpg']);
+    const [options] = callsNamed('download');
+    assert.equal(options.url, BLOB_URL);
+    assert.match(options.filename, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.deepEqual(result, {
+      url: BLOB_URL, filename: options.filename, downloadId: ZIP_DOWNLOAD_ID, added: 2, missing: [],
+    });
+    assert.equal(lastBadgeText(), '');
+  });
+
+  test('reuses an existing offscreen document', async () => {
+    offscreenOpen = true;
+
+    await handleActionClick(TAB);
+
+    assert.equal(callsNamed('createDocument').length, 0);
+    assert.equal(callsNamed('download')[0].url, BLOB_URL);
+  });
+
+  test('missing photos show the amber warning, the ZIP still downloads', async () => {
+    const missingUrl = 'https://image-user.feig-partner.de/x.jpg';
+    zipResponse = { url: BLOB_URL, added: 1, missing: [missingUrl] };
+
+    const result = await handleActionClick(TAB);
+
+    assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
+    assert.deepEqual(result.missing, [missingUrl]);
+    assert.equal(lastBadgeText(), '!');
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor'), [{ tabId: TAB.id, color: '#e0a000' }]);
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
+  });
+
+  test('a successful click after a warning clears the badge', async () => {
+    zipResponse = { url: BLOB_URL, added: 1, missing: ['https://image-user.feig-partner.de/x.jpg'] };
+    await handleActionClick(TAB);
+    zipResponse = { url: BLOB_URL, added: 2, missing: [] };
+    calls = [];
+
+    await handleActionClick(TAB);
+
+    assert.equal(lastBadgeText(), '');
+    assert.equal(lastTitle(), 'Download hidden image');
+  });
+
+  test('all photos failing shows "download failed" and closes the document', async () => {
+    zipResponse = { url: null, added: 0, missing: ['a', 'b'] };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('download').length, 0);
+    assert.equal(callsNamed('closeDocument').length, 1);
+  });
+
+  test('an offscreen error shows "download failed" and closes the document', async () => {
+    zipResponse = { error: 'boom' };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('closeDocument').length, 1);
+  });
+
+  test('an empty offscreen error shows "download failed" without a download', async () => {
+    zipResponse = { error: '' };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('download').length, 0);
+  });
+
+  test('a double click creates the document once and downloads both ZIPs', async () => {
+    const results = await Promise.all([handleActionClick(TAB), handleActionClick(TAB)]);
+
+    assert.equal(callsNamed('createDocument').length, 1);
+    assert.deepEqual(results.map(({ downloadId }) => downloadId), zipDownloadIds);
+  });
+
+  test('a click during a pending close keeps a document open for its download', async () => {
+    await handleActionClick(TAB);
+    let releaseClose;
+    closeDocument = () => new Promise((resolve) => {
+      releaseClose = resolve;
+      closeDocument = async () => {};
+    });
+    fireDownloadChanged(zipDownloadIds[0], 'complete');
+    await new Promise(setImmediate);
+
+    const secondClick = handleActionClick(TAB);
+    await new Promise(setImmediate);
+    releaseClose();
+    const result = await secondClick;
+    await new Promise(setImmediate);
+
+    assert.equal(result.downloadId, zipDownloadIds[1]);
+    assert.equal(offscreenOpen, true);
+  });
+
+  test('a failing createDocument shows "download failed"', async () => {
+    createDocument = async () => {
+      throw new Error('Only a single offscreen document may be created');
+    };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('download').length, 0);
+  });
+
+  test('an offscreen document that never answers the ping shows "download failed"', async () => {
+    mock.method(globalThis, 'setTimeout', (callback) => queueMicrotask(callback));
+    sendMessage = async () => undefined;
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('sendMessage').length, OFFSCREEN_READY_LIMIT);
+    assert.equal(callsNamed('download').length, 0);
+  });
+
+  test('a rejected ZIP download shows "download failed", closes the document and forgets the filename', async () => {
+    download = async () => {
+      throw new Error('Invalid filename');
+    };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /download failed/);
+    assert.equal(callsNamed('closeDocument').length, 1);
+    assert.equal(determineFilename({ url: BLOB_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
+  });
+
+  test('suggests the ZIP name for the blob URL', async () => {
+    let suggestion;
+    const stubDownload = download;
+    download = async (options) => {
+      suggestion = determineFilename({ url: options.url, byExtensionId: OWN_EXTENSION_ID });
+      return stubDownload(options);
+    };
+
+    const result = await handleActionClick(TAB);
+
+    assert.deepEqual(suggestion, { filename: result.filename, conflictAction: 'uniquify' });
+  });
+
+  for (const state of ['complete', 'interrupted']) {
+    test(`closes the document once the ZIP download is ${state}`, async () => {
+      await handleActionClick(TAB);
+      assert.equal(callsNamed('closeDocument').length, 0);
+
+      fireDownloadChanged(ZIP_DOWNLOAD_ID, state);
+      fireDownloadChanged(ZIP_DOWNLOAD_ID, state);
+      await new Promise(setImmediate);
+
+      assert.equal(callsNamed('closeDocument').length, 1);
+    });
+  }
+
+  test('keeps the document open while the download is in progress', async () => {
+    await handleActionClick(TAB);
+
+    fireDownloadChanged(ZIP_DOWNLOAD_ID, 'in_progress');
+    await new Promise(setImmediate);
+
+    assert.equal(callsNamed('closeDocument').length, 0);
+  });
+
+  test('ignores changes of unrelated downloads', async () => {
+    await handleActionClick(TAB);
+
+    fireDownloadChanged(UNRELATED_DOWNLOAD_ID, 'complete');
+    await new Promise(setImmediate);
+
+    assert.equal(callsNamed('closeDocument').length, 0);
+  });
+
+  test('overlapping ZIP downloads close the document after the last one', async () => {
+    await handleActionClick(TAB);
+    await handleActionClick(TAB);
+    const [firstId, secondId] = zipDownloadIds;
+
+    fireDownloadChanged(firstId, 'complete');
+    await new Promise(setImmediate);
+    assert.equal(callsNamed('closeDocument').length, 0);
+
+    fireDownloadChanged(secondId, 'complete');
+    await new Promise(setImmediate);
+    assert.equal(callsNamed('closeDocument').length, 1);
   });
 });

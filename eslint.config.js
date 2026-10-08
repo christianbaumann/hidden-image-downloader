@@ -36,6 +36,12 @@ export default [
     rules,
   },
   {
+    files: ['offscreen.js'],
+    languageOptions: {
+      globals: { JSZip: 'readonly' },
+    },
+  },
+  {
     files: ['tests/**/*.js', 'playwright.config.js'],
     languageOptions: {
       ecmaVersion: 2022,

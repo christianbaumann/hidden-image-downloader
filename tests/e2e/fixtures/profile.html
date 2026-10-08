@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Profile fixture</title></head>
+<body>
+  <h1 class="profile-base-info__user-name"> TestOwner </h1>
+  <div class="profile-main-album-slider">
+    <j-horizontal-scroll-list>
+      <j-card class="cta-icon-card"><a href="/fotos/upload/">Foto hochladen</a></j-card>
+      <j-card class="profile-main-album-slider__card">
+        <picture>
+          <source type="image/webp" srcset="__IMAGE_BASE__/11111111-1111-4111-8111-111111111111/orig/image_1920_k.webp?cache=c 1920w,__IMAGE_BASE__/11111111-1111-4111-8111-111111111111/orig/image_240_k.webp?cache=c 240w">
+          <source type="image/jpeg" srcset="__IMAGE_BASE__/11111111-1111-4111-8111-111111111111/orig/image_1920_k.jpg?cache=c 1920w,__IMAGE_BASE__/11111111-1111-4111-8111-111111111111/orig/image_240_k.jpg?cache=c 240w">
+          <img class="core-img" src="/spacer.gif" alt="">
+        </picture>
+        <img class="img-pane" src="/spacer.gif" alt="">
+      </j-card>
+      <j-card class="profile-main-album-slider__card">
+        <picture>
+          <source type="image/webp" srcset="__IMAGE_BASE__/__SECOND_UUID__/orig/image_1920_k.webp?cache=c 1920w,__IMAGE_BASE__/__SECOND_UUID__/orig/image_240_k.webp?cache=c 240w">
+          <source type="image/jpeg" srcset="__IMAGE_BASE__/__SECOND_UUID__/orig/image_1920_k.jpg?cache=c 1920w,__IMAGE_BASE__/__SECOND_UUID__/orig/image_240_k.jpg?cache=c 240w">
+          <img class="core-img" src="/spacer.gif" alt="">
+        </picture>
+        <img class="img-pane" src="/spacer.gif" alt="">
+      </j-card>
+    </j-horizontal-scroll-list>
+  </div>
+</body>
+</html>

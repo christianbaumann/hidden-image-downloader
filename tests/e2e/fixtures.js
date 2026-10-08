@@ -14,6 +14,9 @@ const ROUTES = {
   '/image.jpg': JPEG,
   '/only-webp.webp': WEBP,
 };
+// Profile slider photos: any UUID serves a jpg, except the one reserved for a missing photo.
+const PHOTO_PATH = /^\/[0-9a-f-]{36}\/orig\/image_\d+_\w+\.jpg$/;
+export const MISSING_PHOTO_UUID = '00000000-0000-4000-8000-000000000000';
 const HTTP_OK = 200;
 const HTTP_NOT_FOUND = 404;
 
@@ -23,6 +26,13 @@ function corsHeaders(request) {
     'Access-Control-Allow-Origin': request.headers.origin ?? '*',
     'Access-Control-Allow-Credentials': 'true',
   };
+}
+
+function imageFor(pathname) {
+  if (PHOTO_PATH.test(pathname) && !pathname.startsWith(`/${MISSING_PHOTO_UUID}/`)) {
+    return JPEG;
+  }
+  return ROUTES[pathname];
 }
 
 export const test = base.extend({
@@ -48,7 +58,7 @@ export const test = base.extend({
   },
   imageServer: async ({}, use) => {
     const server = http.createServer((request, response) => {
-      const image = ROUTES[new URL(request.url, 'http://localhost').pathname];
+      const image = imageFor(new URL(request.url, 'http://localhost').pathname);
       if (!image) {
         response.writeHead(HTTP_NOT_FOUND, corsHeaders(request)).end();
         return;
