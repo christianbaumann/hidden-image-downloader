@@ -5,7 +5,7 @@
   "description": "Download images that websites hide behind a transparent overlay.",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "test": "eslint . && node --test tests/unit/*.test.js",
+    "test": "eslint . && node --test tests/unit/*.test.js tests/integration/*.test.js",
     "test:e2e": "playwright test"
   },
   "devDependencies": {

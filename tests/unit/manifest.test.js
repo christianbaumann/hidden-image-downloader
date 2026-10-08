@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,4 +14,22 @@ test('manifest is Manifest V3', () => {
 
 test('manifest version matches package.json', () => {
   assert.equal(manifest.version, pkg.version);
+});
+
+test('manifest registers background.js as module service worker', () => {
+  assert.deepEqual(manifest.background, { service_worker: 'background.js', type: 'module' });
+  assert.ok(existsSync(resolve(root, manifest.background.service_worker)));
+});
+
+test('manifest requests only scripting and downloads permissions', () => {
+  assert.deepEqual(manifest.permissions, ['scripting', 'downloads']);
+});
+
+test('manifest grants host access to JoyClub only', () => {
+  assert.deepEqual(manifest.host_permissions, ['https://www.joyclub.de/*', 'https://www.joyclub.com/*']);
+});
+
+test('manifest action has a title and no popup', () => {
+  assert.ok(manifest.action.default_title);
+  assert.equal(manifest.action.default_popup, undefined);
 });

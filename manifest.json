@@ -3,5 +3,20 @@
   "name": "Hidden Image Downloader",
   "version": "0.1.0",
   "description": "Download images that websites hide behind a transparent overlay.",
-  "author": "Christian Baumann <mail@christianbaumann.dev> (www.christianbaumann.dev)"
+  "author": "Christian Baumann <mail@christianbaumann.dev> (www.christianbaumann.dev)",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Download hidden image"
+  },
+  "permissions": [
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://www.joyclub.de/*",
+    "https://www.joyclub.com/*"
+  ]
 }
