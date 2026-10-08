@@ -43,6 +43,15 @@ describe('largestSrcsetUrl', () => {
     assert.equal(largestSrcsetUrl(srcset, BASE), `${IMAGE}/image_1920_k.webp?cache=h`);
   });
 
+  test('splits candidates separated by a bare comma, as JoyClub writes them', () => {
+    const srcset = WIDTHS.map((w) => `${IMAGE}/image_${w}_k.webp?cache=h ${w}w`).join(',');
+    assert.equal(largestSrcsetUrl(srcset, BASE), `${IMAGE}/image_1920_k.webp?cache=h`);
+  });
+
+  test('keeps commas inside a data: URL next to bare-comma candidates', () => {
+    assert.equal(largestSrcsetUrl('data:image/gif;base64,R0lGOD 1w,https://x/a 240w', BASE), 'https://x/a');
+  });
+
   test('picks the widest candidate regardless of order', () => {
     assert.equal(largestSrcsetUrl('https://x/m 800w, https://x/l 1920w, https://x/s 240w', BASE), 'https://x/l');
   });
