@@ -45,6 +45,19 @@ test('sanitizeSegment trims leading/trailing whitespace, ., -, _', () => {
   assert.equal(sanitizeSegment('  -_name_-  '), 'name');
 });
 
+test('sanitizeSegment replaces Unicode format chars (rejected by Chrome) with _', () => {
+  assert.equal(sanitizeSegment('a\u200Db'), 'a_b');
+  assert.equal(sanitizeSegment('a\u200Bb'), 'a_b');
+  assert.equal(sanitizeSegment('a\u00ADb'), 'a_b');
+  assert.equal(sanitizeSegment('a\u202Eb'), 'a_b');
+  assert.equal(sanitizeSegment('\u{1F468}\u200D\u{1F469}'), '\u{1F468}_\u{1F469}');
+});
+
+test('sanitizeSegment trims leading ~ (rejected by Chrome), keeps inner ~', () => {
+  assert.equal(sanitizeSegment('~Anna'), 'Anna');
+  assert.equal(sanitizeSegment('An~na'), 'An~na');
+});
+
 test('sanitizeSegment allows &', () => {
   assert.equal(sanitizeSegment('Plug & Schwanz'), 'Plug-&-Schwanz');
 });

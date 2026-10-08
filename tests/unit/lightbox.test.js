@@ -96,9 +96,7 @@ describe('toDownloadRequest', () => {
 
   test('falls back when owner and title are missing', () => {
     const request = toDownloadRequest({ ...raw, owner: null, title: '' }, date);
-    const expected = buildFilename({ owner: null, title: '', photoId: raw.photoId, url: request.url, date });
-    assert.equal(request.filename, expected);
-    assert.ok(request.filename.length > 0);
+    assert.equal(request.filename, 'unknown_photo-4711_2026-10-08_174500.webp');
   });
 });
 
