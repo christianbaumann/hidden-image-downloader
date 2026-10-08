@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toJpgUrl, largestSrcsetUrl, largestJpegUrl } from '../../lib/image-url.js';
+import { toJpgUrl, largestJpegUrl } from '../../lib/image-url.js';
 import { sourceListJson } from '../fixtures/album-api.js';
 
 describe('toJpgUrl', () => {
@@ -31,61 +31,6 @@ describe('toJpgUrl', () => {
 
   test('returns an invalid URL unchanged', () => {
     assert.equal(toJpgUrl('not a url'), 'not a url');
-  });
-});
-
-describe('largestSrcsetUrl', () => {
-  const BASE = 'https://www.joyclub.de/profile/1.html';
-  const IMAGE = 'https://image-user.feig-partner.de/11111111-1111-4111-8111-111111111111/orig';
-  const WIDTHS = [1920, 1440, 960, 720, 480, 420, 360, 300, 240];
-
-  test('picks the 1920w candidate of a real-shape srcset', () => {
-    const srcset = WIDTHS.map((w) => `${IMAGE}/image_${w}_k.webp?cache=h ${w}w`).join(', ');
-    assert.equal(largestSrcsetUrl(srcset, BASE), `${IMAGE}/image_1920_k.webp?cache=h`);
-  });
-
-  test('splits candidates separated by a bare comma, as JoyClub writes them', () => {
-    const srcset = WIDTHS.map((w) => `${IMAGE}/image_${w}_k.webp?cache=h ${w}w`).join(',');
-    assert.equal(largestSrcsetUrl(srcset, BASE), `${IMAGE}/image_1920_k.webp?cache=h`);
-  });
-
-  test('keeps commas inside a data: URL next to bare-comma candidates', () => {
-    assert.equal(largestSrcsetUrl('data:image/gif;base64,R0lGOD 1w,https://x/a 240w', BASE), 'https://x/a');
-  });
-
-  test('picks the widest candidate regardless of order', () => {
-    assert.equal(largestSrcsetUrl('https://x/m 800w, https://x/l 1920w, https://x/s 240w', BASE), 'https://x/l');
-  });
-
-  test('returns a single candidate', () => {
-    assert.equal(largestSrcsetUrl('https://x/a 240w', BASE), 'https://x/a');
-  });
-
-  test('keeps the first candidate on equal widths', () => {
-    assert.equal(largestSrcsetUrl('https://x/a 800w, https://x/b 800w', BASE), 'https://x/a');
-  });
-
-  test('returns null for empty, null or whitespace-only input', () => {
-    for (const srcset of ['', null, '  \n ']) {
-      assert.equal(largestSrcsetUrl(srcset, BASE), null);
-    }
-  });
-
-  test('ignores candidates without a w descriptor', () => {
-    assert.equal(largestSrcsetUrl('https://x/a 2x, https://x/b, https://x/c 240w', BASE), 'https://x/c');
-    assert.equal(largestSrcsetUrl('https://x/a 2x, https://x/b', BASE), null);
-  });
-
-  test('resolves a relative URL against baseUrl', () => {
-    assert.equal(largestSrcsetUrl('/img/a.jpg 240w', BASE), 'https://www.joyclub.de/img/a.jpg');
-  });
-
-  test('rejects a data: URL', () => {
-    assert.equal(largestSrcsetUrl('data:image/gif;base64,R0lGOD 1w', BASE), null);
-  });
-
-  test('tolerates extra whitespace and newlines between candidates', () => {
-    assert.equal(largestSrcsetUrl('\n  https://x/a   240w ,\n\t https://x/b\t1920w\n', BASE), 'https://x/b');
   });
 });
 

@@ -1,31 +1,19 @@
-import { describe, test } from 'node:test';
+import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AlbumApiError,
+  fetchProfileAlbums,
   NothingToDownloadError,
   photoKey,
   profileUserId,
-  toZipRequest,
   toAlbumZipRequest,
   skippedReport,
   missingReport,
 } from '../../lib/profile.js';
 import { IMAGE_BASE, albumRaw, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
 
-const PAGE_URL = 'https://www.joyclub.de/profile/1.html';
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
 const UUID_1 = '11111111-1111-4111-8111-111111111111';
-const UUID_2 = '22222222-2222-4222-8222-222222222222';
-
-function srcset(uuid, ext = 'webp') {
-  const base = `https://image-user.feig-partner.de/${uuid}/orig`;
-  return `${base}/image_1920_k.${ext}?cache=c 1920w, ${base}/image_240_k.${ext}?cache=c 240w`;
-}
-
-function raw(items, owner = 'TestOwner') {
-  return { owner, pageUrl: PAGE_URL, items };
-}
-
 describe('photoKey', () => {
   test('returns the first 8 chars of a UUID path segment', () => {
     assert.equal(photoKey(`https://x/${UUID_1}/orig/image_1920_k.jpg`), '11111111');
@@ -37,85 +25,6 @@ describe('photoKey', () => {
 
   test('returns null for an invalid URL', () => {
     assert.equal(photoKey('not a url'), null);
-  });
-});
-
-describe('toZipRequest', () => {
-  test('names entries <owner>_<nn>_<key>.jpg and prefers the 1920 jpg', () => {
-    const { entries } = toZipRequest(raw([{ srcset: srcset(UUID_1) }, { srcset: srcset(UUID_2) }]), DATE);
-    assert.deepEqual(entries, [
-      {
-        url: `https://image-user.feig-partner.de/${UUID_1}/orig/image_1920_k.jpg?cache=c`,
-        name: 'TestOwner_01_11111111.jpg',
-      },
-      {
-        url: `https://image-user.feig-partner.de/${UUID_2}/orig/image_1920_k.jpg?cache=c`,
-        name: 'TestOwner_02_22222222.jpg',
-      },
-    ]);
-  });
-
-  test('names the ZIP <owner>_<timestamp>.zip', () => {
-    const { zipName } = toZipRequest(raw([{ srcset: srcset(UUID_1) }]), DATE);
-    assert.equal(zipName, 'TestOwner_2026-10-08_174500.zip');
-  });
-
-  test('throws NothingToDownloadError for null raw', () => {
-    assert.throws(() => toZipRequest(null, DATE), NothingToDownloadError);
-  });
-
-  test('throws NothingToDownloadError for no items', () => {
-    assert.throws(() => toZipRequest(raw([]), DATE), NothingToDownloadError);
-  });
-
-  test('throws NothingToDownloadError when every srcset is empty', () => {
-    assert.throws(() => toZipRequest(raw([{ srcset: '' }, { srcset: '' }]), DATE), NothingToDownloadError);
-  });
-
-  test('numbers kept items without gaps', () => {
-    const items = [{ srcset: srcset(UUID_1) }, { srcset: '' }, { srcset: srcset(UUID_2) }];
-    const names = toZipRequest(raw(items), DATE).entries.map((entry) => entry.name);
-    assert.deepEqual(names, ['TestOwner_01_11111111.jpg', 'TestOwner_02_22222222.jpg']);
-  });
-
-  test('pads a single item to 01', () => {
-    const [entry] = toZipRequest(raw([{ srcset: srcset(UUID_1) }]), DATE).entries;
-    assert.equal(entry.name, 'TestOwner_01_11111111.jpg');
-  });
-
-  test('keeps two digits for 99 items', () => {
-    const items = Array.from({ length: 99 }, () => ({ srcset: srcset(UUID_1) }));
-    const { entries } = toZipRequest(raw(items), DATE);
-    assert.equal(entries.at(-1).name, 'TestOwner_99_11111111.jpg');
-  });
-
-  test('pads to three digits for 100 items', () => {
-    const items = Array.from({ length: 100 }, () => ({ srcset: srcset(UUID_1) }));
-    const { entries } = toZipRequest(raw(items), DATE);
-    assert.equal(entries[0].name, 'TestOwner_001_11111111.jpg');
-    assert.equal(entries.at(-1).name, 'TestOwner_100_11111111.jpg');
-  });
-
-  test('falls back to unknown for an empty owner', () => {
-    const request = toZipRequest(raw([{ srcset: srcset(UUID_1) }], ''), DATE);
-    assert.match(request.zipName, /^unknown_/);
-    assert.equal(request.entries[0].name, 'unknown_01_11111111.jpg');
-  });
-
-  test('sanitises the owner and keeps umlauts', () => {
-    const request = toZipRequest(raw([{ srcset: srcset(UUID_1) }], 'Rück/Seite'), DATE);
-    assert.match(request.zipName, /^Rück_Seite_/);
-    assert.equal(request.entries[0].name, 'Rück_Seite_01_11111111.jpg');
-  });
-
-  test('omits the key for a non-UUID URL', () => {
-    const items = [{ srcset: 'https://x/photos/image_1920_k.webp 1920w' }];
-    assert.equal(toZipRequest(raw(items), DATE).entries[0].name, 'TestOwner_01.jpg');
-  });
-
-  test('keeps a jpeg-only source URL unchanged', () => {
-    const [entry] = toZipRequest(raw([{ srcset: srcset(UUID_1, 'jpg') }]), DATE).entries;
-    assert.equal(entry.url, `https://image-user.feig-partner.de/${UUID_1}/orig/image_1920_k.jpg?cache=c`);
   });
 });
 
@@ -343,5 +252,123 @@ describe('skippedReport', () => {
 
   test('returns empty for no albums', () => {
     assert.equal(skippedReport([]), '');
+  });
+});
+
+describe('fetchProfileAlbums', () => {
+  const USER_ID = '1000001';
+  const TOKEN = 'test-token';
+  const MAIN_CARD = { href: '/profile/fotoalbum/1000001.testowner.html', title: 'Fotos von uns' };
+  const REGULAR_CARD = { href: '/profile/fotoalbum/1000001-201.testowner.html', title: 'Aktuelles' };
+  const HTTP_FORBIDDEN = 403;
+  const HTTP_SERVER_ERROR = 500;
+  const LIST = listResult({ main: ['101'], albums: [{ id: '201', title: 'Aktuelles', ids: ['102'] }] });
+  const SOURCES = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: testUuid(2) }]);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls;
+  let responses;
+
+  const jsonResponse = (body, status = 200) => ({ ok: status < 300, status, json: async () => body });
+  const listBody = (list) => ({ data: { profileAlbum: { listByUserId: list } } });
+  const sourcesBody = (itemList) => ({ data: { profileAlbum: { image: { source: { sourceByImageIdList: { itemList } } } } } });
+
+  function stubDocument({ owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD] } = {}) {
+    const anchors = cards.map(({ href, title }) => ({
+      getAttribute: (name) => (name === 'href' ? href : null),
+      querySelector: (selector) => (selector === '.title' ? { textContent: ` ${title} ` } : null),
+    }));
+    globalThis.document = {
+      querySelector: (selector) => (selector === 'h1.profile-base-info__user-name' && owner !== null ? { textContent: owner } : null),
+      querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? anchors : []),
+    };
+  }
+
+  beforeEach(() => {
+    fetchCalls = [];
+    responses = [
+      () => jsonResponse({ status_code: 200, content: { access_token: TOKEN }, error: null }),
+      () => jsonResponse(listBody(LIST)),
+      () => jsonResponse(sourcesBody(SOURCES)),
+    ];
+    globalThis.fetch = async (url, options = {}) => {
+      fetchCalls.push({ url, ...options, body: options.body && JSON.parse(options.body) });
+      return responses[fetchCalls.length - 1]();
+    };
+    stubDocument();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete globalThis.document;
+  });
+
+  test('fetches token, album list and image sources in order', async () => {
+    const result = await fetchProfileAlbums(USER_ID);
+
+    assert.deepEqual(result, { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
+    const [token, list, sources] = fetchCalls;
+    assert.equal(fetchCalls.length, 3);
+    assert.equal(token.url, '/webauth/access_token');
+    assert.equal(token.credentials, 'include');
+    for (const call of [list, sources]) {
+      assert.equal(call.url, 'https://apiv2.joyclub.com/graph/');
+      assert.equal(call.method, 'POST');
+      assert.deepEqual(call.headers, { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' });
+    }
+    assert.equal(list.body.operationName, 'getProfileAlbumList');
+    assert.deepEqual(list.body.variables, { id: USER_ID });
+    assert.equal(sources.body.operationName, 'getProfileAlbumImageSources');
+    assert.deepEqual(sources.body.variables, { idList: ['101', '102'] });
+  });
+
+  test('every fetch gets an AbortSignal', async () => {
+    await fetchProfileAlbums(USER_ID);
+
+    assert.ok(fetchCalls.every((call) => call.signal instanceof AbortSignal));
+  });
+
+  test('reads the main album title only from the card without an album id', async () => {
+    stubDocument({ cards: [REGULAR_CARD] });
+
+    assert.equal((await fetchProfileAlbums(USER_ID)).mainAlbumTitle, '');
+  });
+
+  test('a missing owner heading gives an empty owner', async () => {
+    stubDocument({ owner: null });
+
+    assert.equal((await fetchProfileAlbums(USER_ID)).owner, '');
+  });
+
+  test('skips the sources call when no album has ids', async () => {
+    const empty = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
+    responses[1] = () => jsonResponse(listBody(empty));
+
+    const result = await fetchProfileAlbums(USER_ID);
+
+    assert.equal(fetchCalls.length, 2);
+    assert.deepEqual(result.sources, []);
+    assert.deepEqual(result.list, empty);
+  });
+
+  const failures = {
+    'token HTTP 403': [0, () => jsonResponse({}, HTTP_FORBIDDEN)],
+    'token JSON without access_token': [0, () => jsonResponse({ status_code: 401, content: null, error: 'x' })],
+    'list HTTP 500': [1, () => jsonResponse({}, HTTP_SERVER_ERROR)],
+    'GraphQL errors array': [1, () => jsonResponse({ errors: [{ message: 'denied' }], data: null })],
+    'sources fetch throws': [2, () => { throw new TypeError('Failed to fetch'); }],
+    'timeout abort': [2, () => { throw new DOMException('signal timed out', 'TimeoutError'); }],
+  };
+  for (const [name, [index, response]] of Object.entries(failures)) {
+    test(`${name} → { failed: true }`, async () => {
+      responses[index] = response;
+
+      assert.deepEqual(await fetchProfileAlbums(USER_ID), { failed: true });
+    });
+  }
+
+  test('stays self-contained when serialised like executeScript does', async () => {
+    const serialised = new Function(`return (${fetchProfileAlbums.toString()})`)();
+
+    assert.deepEqual(await serialised(USER_ID), { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
   });
 });

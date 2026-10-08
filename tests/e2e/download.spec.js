@@ -1,11 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
-import { test, expect, MISSING_PHOTO_UUID } from './fixtures.js';
+import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
+import { listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
-const PROFILE_URL = 'https://www.joyclub.de/e2e/profile';
+const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
-const SECOND_PHOTO_UUID = '22222222-2222-4222-8222-222222222222';
+const HTTP_SERVER_ERROR = 500;
+const ALBUM_LIST = listResult({
+  main: ['101'],
+  albums: [
+    { id: '201', title: 'Aktuelles', ids: ['102'] },
+    { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
+  ],
+});
 const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
 const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_\\d{4}-\\d{2}-\\d{2}_\\d{6}';
@@ -63,8 +71,10 @@ function hasOffscreenDocument(serviceWorker) {
   return serviceWorker.evaluate(() => chrome.offscreen.hasDocument());
 }
 
-function profileFixture(imageServer, secondUuid = SECOND_PHOTO_UUID) {
-  return fixture('profile.html', { __IMAGE_BASE__: imageServer.base, __SECOND_UUID__: secondUuid });
+async function serveProfile(page, imageServer, { secondUuid = testUuid(2), graphStatus } = {}) {
+  const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
+  await routeJoyclubApi(page.context(), { list: ALBUM_LIST, sources, graphStatus });
+  await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 }
 
 test('downloads the lightbox image as jpg with owner and title in the filename', async ({ page, serviceWorker, imageServer }) => {
@@ -89,27 +99,48 @@ test('falls back to the webp when the server has no jpg', async ({ page, service
     .toBe('complete');
 });
 
-test('downloads the profile slider photos as one ZIP', async ({ page, serviceWorker, imageServer }) => {
-  await serve(page, PROFILE_URL, await profileFixture(imageServer));
+test('downloads every accessible album into its own folder', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer);
 
   const result = await clickAction(serviceWorker);
 
   expect(result.filename).toMatch(/^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
-  expect(await zipEntries(serviceWorker, result.downloadId))
-    .toEqual(['TestOwner_01_11111111.jpg', 'TestOwner_02_22222222.jpg']);
+  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+    'Aktuelles/',
+    'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
+    'Fotos-von-uns/',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'skipped.txt',
+  ]);
   expect((await badgeState(serviceWorker)).text).toBe('');
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
 });
 
-test('lists a missing profile photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {
-  await serve(page, PROFILE_URL, await profileFixture(imageServer, MISSING_PHOTO_UUID));
+test('lists a missing album photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { secondUuid: MISSING_PHOTO_UUID });
 
   const result = await clickAction(serviceWorker);
 
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual(['TestOwner_01_11111111.jpg', 'missing.txt']);
+  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+    'Fotos-von-uns/',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'missing.txt',
+    'skipped.txt',
+  ]);
   const badge = await badgeState(serviceWorker);
   expect(badge.text).toBe('!');
   expect(badge.title).toContain('1 of 2 photos missing');
+});
+
+test('shows "album list unavailable" when the API fails', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { graphStatus: HTTP_SERVER_ERROR });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(result).toBeNull();
+  const badge = await badgeState(serviceWorker);
+  expect(badge.text).toBe('!');
+  expect(badge.title).toContain('album list unavailable');
 });
 
 test('flags the icon when there is neither a lightbox nor profile photos', async ({ page, serviceWorker }) => {

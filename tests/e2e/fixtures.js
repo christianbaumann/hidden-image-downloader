@@ -14,11 +14,16 @@ const ROUTES = {
   '/image.jpg': JPEG,
   '/only-webp.webp': WEBP,
 };
-// Profile slider photos: any UUID serves a jpg, except the one reserved for a missing photo.
+// Album photos: any UUID serves a jpg, except the one reserved for a missing photo.
 const PHOTO_PATH = /^\/[0-9a-f-]{36}\/orig\/image_\d+_\w+\.jpg$/;
 export const MISSING_PHOTO_UUID = '00000000-0000-4000-8000-000000000000';
 const HTTP_OK = 200;
+const HTTP_NO_CONTENT = 204;
 const HTTP_NOT_FOUND = 404;
+const JOYCLUB_ORIGIN = 'https://www.joyclub.de';
+const TOKEN_URL = `${JOYCLUB_ORIGIN}/webauth/access_token`;
+const GRAPH_URL = 'https://apiv2.joyclub.com/graph/';
+const GRAPH_CORS = { 'Access-Control-Allow-Origin': JOYCLUB_ORIGIN };
 
 // The extension probes 127.0.0.1 without host permission, so every answer needs credentialed CORS headers.
 function corsHeaders(request) {
@@ -33,6 +38,34 @@ function imageFor(pathname) {
     return JPEG;
   }
   return ROUTES[pathname];
+}
+
+// JoyClub's token endpoint and GraphQL API; graphStatus other than 200 fails every GraphQL call.
+// context.route also catches the fetches of the injected fetcher.
+export async function routeJoyclubApi(context, { list, sources, graphStatus = HTTP_OK }) {
+  await context.route(TOKEN_URL, (route) => route.fulfill({
+    json: { status_code: HTTP_OK, content: { access_token: 'e2e-token' }, error: null },
+  }));
+  await context.route(GRAPH_URL, (route) => {
+    const request = route.request();
+    if (request.method() === 'OPTIONS') {
+      return route.fulfill({
+        status: HTTP_NO_CONTENT,
+        headers: {
+          ...GRAPH_CORS,
+          'Access-Control-Allow-Headers': 'authorization, content-type',
+          'Access-Control-Allow-Methods': 'POST',
+        },
+      });
+    }
+    if (graphStatus !== HTTP_OK) {
+      return route.fulfill({ status: graphStatus, headers: GRAPH_CORS, body: '' });
+    }
+    const data = request.postDataJSON().operationName === 'getProfileAlbumList'
+      ? { profileAlbum: { listByUserId: list } }
+      : { profileAlbum: { image: { source: { sourceByImageIdList: { itemList: sources } } } } };
+    return route.fulfill({ headers: GRAPH_CORS, json: { data } });
+  });
 }
 
 export const test = base.extend({

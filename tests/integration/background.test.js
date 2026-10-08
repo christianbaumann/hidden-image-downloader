@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { albumRaw, listResult } from '../fixtures/album-api.js';
 
 const TAB = { id: 7 };
+const PROFILE_USER_ID = '1000001';
+const PROFILE_TAB = { id: 7, url: `https://www.joyclub.de/profile/${PROFILE_USER_ID}.testowner.html` };
+const FEED_TAB = { id: 7, url: 'https://www.joyclub.de/fotos/feed/' };
 const OTHER_TAB = { id: 8 };
 const IMAGE_URL = 'https://cdn.joyclub.de/img/abc_1920.webp?c=1';
 const JPG_URL = 'https://cdn.joyclub.de/img/abc_1920.jpg?c=1';
@@ -16,14 +20,6 @@ const VALID_DATA = {
   owner: 'TestOwner',
   photoId: '1001',
   pageUrl: 'https://www.joyclub.de/profile/1.html',
-};
-const PHOTO_UUIDS = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
-const PROFILE_DATA = {
-  owner: 'TestOwner',
-  pageUrl: 'https://www.joyclub.de/profile/1.html',
-  items: PHOTO_UUIDS.map((uuid) => ({
-    srcset: `https://image-user.feig-partner.de/${uuid}/orig/image_1920_k.webp?cache=c 1920w`,
-  })),
 };
 const BLOB_URL = 'blob:chrome-extension://own-extension-id/5f1c';
 const ZIP_DOWNLOAD_ID = 43;
@@ -127,7 +123,7 @@ function determineFilename(item) {
 beforeEach(() => {
   mock.restoreAll();
   calls = [];
-  extracted = { extractLightboxData: VALID_DATA, extractProfileSliderData: PROFILE_DATA };
+  extracted = { extractLightboxData: VALID_DATA, fetchProfileAlbums: albumRaw() };
   executeScript = async ({ func }) => [{ result: extracted[func.name] }];
   zipDownloadIds = [];
   download = async ({ url }) => {
@@ -225,6 +221,27 @@ describe('handleActionClick', () => {
     assert.equal(options.conflictAction, 'uniquify');
     assert.equal(options.saveAs, false);
     assert.deepEqual(result, { url: JPG_URL, filename: options.filename, downloadId: DOWNLOAD_ID });
+  });
+
+  test('a non-profile JoyClub URL with a lightbox downloads the single image', async () => {
+    const result = await handleActionClick(FEED_TAB);
+
+    assert.deepEqual(injectedFunctions(), ['extractLightboxData']);
+    assert.equal(result.url, JPG_URL);
+  });
+
+  test('a non-profile JoyClub URL without a lightbox shows "no lightbox image or profile photos found"', async () => {
+    extracted.extractLightboxData = null;
+
+    assert.equal(await handleActionClick(FEED_TAB), null);
+    assert.match(lastTitle(), /no lightbox image or profile photos found/);
+    assert.deepEqual(injectedFunctions(), ['extractLightboxData']);
+  });
+
+  test('a tab without a URL takes the lightbox path', async () => {
+    await handleActionClick(TAB);
+
+    assert.deepEqual(injectedFunctions(), ['extractLightboxData']);
   });
 
   test('injects the extractor into the clicked tab', async () => {
@@ -404,28 +421,24 @@ describe('jpg probe', () => {
 });
 
 describe('profile ZIP', () => {
-  beforeEach(() => {
-    extracted.extractLightboxData = null;
-  });
-
   // Finishes every ZIP download so no open job leaks into the next test.
   afterEach(async () => {
     zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
     await new Promise(setImmediate);
   });
 
-  test('a lightbox image skips the profile extractor', async () => {
-    extracted.extractLightboxData = VALID_DATA;
+  test('a profile URL injects only the album fetcher, with the user id', async () => {
+    await handleActionClick(PROFILE_TAB);
 
-    await handleActionClick(TAB);
-
-    assert.deepEqual(injectedFunctions(), ['extractLightboxData']);
+    const [options] = callsNamed('executeScript');
+    assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums']);
+    assert.deepEqual(options.target, { tabId: PROFILE_TAB.id });
+    assert.deepEqual(options.args, [PROFILE_USER_ID]);
   });
 
   test('builds the ZIP offscreen and downloads its blob URL', async () => {
-    const result = await handleActionClick(TAB);
+    const result = await handleActionClick(PROFILE_TAB);
 
-    assert.deepEqual(injectedFunctions(), ['extractLightboxData', 'extractProfileSliderData']);
     const [created] = callsNamed('createDocument');
     assert.equal(created.url, 'offscreen.html');
     assert.deepEqual(created.reasons, ['BLOBS']);
@@ -434,8 +447,11 @@ describe('profile ZIP', () => {
     const build = messages.at(-1);
     assert.equal(build.target, 'offscreen');
     assert.equal(build.action, 'build-zip');
-    assert.deepEqual(build.entries.map(({ name }) => name), ['TestOwner_01_11111111.jpg', 'TestOwner_02_22222222.jpg']);
-    assert.deepEqual(build.reports, []);
+    assert.deepEqual(build.entries.map(({ name }) => name), [
+      'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+      'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
+    ]);
+    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
     assert.match(options.filename, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
@@ -445,10 +461,65 @@ describe('profile ZIP', () => {
     assert.equal(lastBadgeText(), '');
   });
 
+  test('a profile URL with a lightbox open still takes the album path', async () => {
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(injectedFunctions().includes('extractLightboxData'), false);
+    assert.equal(callsNamed('download')[0].url, BLOB_URL);
+  });
+
+  for (const url of [
+    'https://www.joyclub.de/profile/fotos/1000001.testowner.html',
+    'https://www.joyclub.de/profile/fotoalbum/1000001-201.testowner.html',
+  ]) {
+    test(`takes the album path on ${new URL(url).pathname}`, async () => {
+      await handleActionClick({ ...PROFILE_TAB, url });
+
+      assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums']);
+      assert.equal(callsNamed('download')[0].url, BLOB_URL);
+    });
+  }
+
+  test('makes no fetch from the service worker', async () => {
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(callsNamed('fetch').length, 0);
+  });
+
+  test('a failed album fetch shows "album list unavailable", no document, no download', async () => {
+    extracted.fetchProfileAlbums = { failed: true };
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+    assert.equal(lastBadgeText(), '!');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: album list unavailable');
+    assert.equal(callsNamed('createDocument').length, 0);
+    assert.equal(callsNamed('download').length, 0);
+  });
+
+  test('a failing injection on a profile URL shows the JoyClub hint', async () => {
+    executeScript = async () => {
+      throw new Error('Cannot access contents of the page');
+    };
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+    assert.match(lastTitle(), /JoyClub pages only/);
+  });
+
+  test('only restricted albums show "no lightbox image or profile photos found", no document', async () => {
+    extracted.fetchProfileAlbums = albumRaw({
+      list: listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] }),
+      sources: [],
+    });
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+    assert.match(lastTitle(), /no lightbox image or profile photos found/);
+    assert.equal(callsNamed('createDocument').length, 0);
+  });
+
   test('reuses an existing offscreen document', async () => {
     offscreenOpen = true;
 
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
 
     assert.equal(callsNamed('createDocument').length, 0);
     assert.equal(callsNamed('download')[0].url, BLOB_URL);
@@ -458,22 +529,22 @@ describe('profile ZIP', () => {
     const missingUrl = 'https://image-user.feig-partner.de/x.jpg';
     zipResponse = { url: BLOB_URL, added: 1, missing: [missingUrl] };
 
-    const result = await handleActionClick(TAB);
+    const result = await handleActionClick(PROFILE_TAB);
 
     assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
     assert.deepEqual(result.missing, [missingUrl]);
     assert.equal(lastBadgeText(), '!');
-    assert.deepEqual(callsNamed('setBadgeBackgroundColor'), [{ tabId: TAB.id, color: '#e0a000' }]);
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor'), [{ tabId: PROFILE_TAB.id, color: '#e0a000' }]);
     assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
   });
 
   test('a successful click after a warning clears the badge', async () => {
     zipResponse = { url: BLOB_URL, added: 1, missing: ['https://image-user.feig-partner.de/x.jpg'] };
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
     zipResponse = { url: BLOB_URL, added: 2, missing: [] };
     calls = [];
 
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
 
     assert.equal(lastBadgeText(), '');
     assert.equal(lastTitle(), 'Download hidden image');
@@ -482,7 +553,7 @@ describe('profile ZIP', () => {
   test('all photos failing shows "download failed" and closes the document', async () => {
     zipResponse = { url: null, added: 0, missing: ['a', 'b'] };
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('download').length, 0);
     assert.equal(callsNamed('closeDocument').length, 1);
@@ -491,7 +562,7 @@ describe('profile ZIP', () => {
   test('an offscreen error shows "download failed" and closes the document', async () => {
     zipResponse = { error: 'boom' };
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('closeDocument').length, 1);
   });
@@ -499,20 +570,20 @@ describe('profile ZIP', () => {
   test('an empty offscreen error shows "download failed" without a download', async () => {
     zipResponse = { error: '' };
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('download').length, 0);
   });
 
   test('a double click creates the document once and downloads both ZIPs', async () => {
-    const results = await Promise.all([handleActionClick(TAB), handleActionClick(TAB)]);
+    const results = await Promise.all([handleActionClick(PROFILE_TAB), handleActionClick(PROFILE_TAB)]);
 
     assert.equal(callsNamed('createDocument').length, 1);
     assert.deepEqual(results.map(({ downloadId }) => downloadId), zipDownloadIds);
   });
 
   test('a click during a pending close keeps a document open for its download', async () => {
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
     let releaseClose;
     closeDocument = () => new Promise((resolve) => {
       releaseClose = resolve;
@@ -521,7 +592,7 @@ describe('profile ZIP', () => {
     fireDownloadChanged(zipDownloadIds[0], 'complete');
     await new Promise(setImmediate);
 
-    const secondClick = handleActionClick(TAB);
+    const secondClick = handleActionClick(PROFILE_TAB);
     await new Promise(setImmediate);
     releaseClose();
     const result = await secondClick;
@@ -536,7 +607,7 @@ describe('profile ZIP', () => {
       throw new Error('Only a single offscreen document may be created');
     };
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('download').length, 0);
   });
@@ -545,7 +616,7 @@ describe('profile ZIP', () => {
     mock.method(globalThis, 'setTimeout', (callback) => queueMicrotask(callback));
     sendMessage = async () => undefined;
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('sendMessage').length, OFFSCREEN_READY_LIMIT);
     assert.equal(callsNamed('download').length, 0);
@@ -556,7 +627,7 @@ describe('profile ZIP', () => {
       throw new Error('Invalid filename');
     };
 
-    assert.equal(await handleActionClick(TAB), null);
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('closeDocument').length, 1);
     assert.equal(determineFilename({ url: BLOB_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
@@ -570,14 +641,14 @@ describe('profile ZIP', () => {
       return stubDownload(options);
     };
 
-    const result = await handleActionClick(TAB);
+    const result = await handleActionClick(PROFILE_TAB);
 
     assert.deepEqual(suggestion, { filename: result.filename, conflictAction: 'uniquify' });
   });
 
   for (const state of ['complete', 'interrupted']) {
     test(`closes the document once the ZIP download is ${state}`, async () => {
-      await handleActionClick(TAB);
+      await handleActionClick(PROFILE_TAB);
       assert.equal(callsNamed('closeDocument').length, 0);
 
       fireDownloadChanged(ZIP_DOWNLOAD_ID, state);
@@ -589,7 +660,7 @@ describe('profile ZIP', () => {
   }
 
   test('keeps the document open while the download is in progress', async () => {
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
 
     fireDownloadChanged(ZIP_DOWNLOAD_ID, 'in_progress');
     await new Promise(setImmediate);
@@ -598,7 +669,7 @@ describe('profile ZIP', () => {
   });
 
   test('ignores changes of unrelated downloads', async () => {
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
 
     fireDownloadChanged(UNRELATED_DOWNLOAD_ID, 'complete');
     await new Promise(setImmediate);
@@ -607,8 +678,8 @@ describe('profile ZIP', () => {
   });
 
   test('overlapping ZIP downloads close the document after the last one', async () => {
-    await handleActionClick(TAB);
-    await handleActionClick(TAB);
+    await handleActionClick(PROFILE_TAB);
+    await handleActionClick(PROFILE_TAB);
     const [firstId, secondId] = zipDownloadIds;
 
     fireDownloadChanged(firstId, 'complete');

@@ -1,5 +1,5 @@
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
-import { extractProfileSliderData, toZipRequest } from './lib/profile.js';
+import { NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest } from './lib/profile.js';
 
 const DEFAULT_ACTION_TITLE = 'Download hidden image';
 const BADGE_TITLE_PREFIX = 'Hidden Image Downloader: ';
@@ -29,6 +29,7 @@ class DownloadFailedError extends Error {
 const ERROR_REASONS = {
   UnsupportedPageError: 'works on JoyClub pages only',
   NothingToDownloadError: 'no lightbox image or profile photos found',
+  AlbumApiError: 'album list unavailable',
   NoImageUrlError: 'image address not found',
   DownloadFailedError: 'download failed',
 };
@@ -61,9 +62,9 @@ async function showBadge(tabId, reason, color) {
 const showError = (tabId, reason) => showBadge(tabId, reason, BADGE_ERROR_COLOR);
 const showWarning = (tabId, reason) => showBadge(tabId, reason, BADGE_WARNING_COLOR);
 
-async function extractFromTab(tabId, func) {
+async function extractFromTab(tabId, func, args = []) {
   try {
-    const [injection] = await chrome.scripting.executeScript({ target: { tabId }, func });
+    const [injection] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
     return injection.result;
   } catch {
     throw new UnsupportedPageError();
@@ -200,10 +201,14 @@ export async function handleActionClick(tab) {
   await clearBadge(tab.id);
   try {
     const date = new Date();
+    const userId = profileUserId(tab.url);
+    if (userId) {
+      const raw = await extractFromTab(tab.id, fetchProfileAlbums, [userId]);
+      return await downloadZip(tab.id, toAlbumZipRequest(raw, date));
+    }
     const raw = await extractFromTab(tab.id, extractLightboxData);
     if (!raw) {
-      const request = toZipRequest(await extractFromTab(tab.id, extractProfileSliderData), date);
-      return await downloadZip(tab.id, request);
+      throw new NothingToDownloadError();
     }
     const { url, filename } = await firstAvailable(toDownloadCandidates(raw, date));
     const downloadId = await startDownload(url, filename);
