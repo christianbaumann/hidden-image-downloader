@@ -11,7 +11,8 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - Runtime dependencies are vendored in `vendor/` — not via npm.
 - Dev tooling (ESLint, Playwright, …) lives in `package.json` devDependencies — npm is fine for tools that never ship in the extension.
 - Firefox: MV3 needs `browser_specific_settings.gecko` (`id`, `data_collection_permissions`) and `background.scripts` instead of `background.service_worker`. Not handled yet; `web-ext lint` reports it.
-- `eslint.config.js` lints root `*.js` (extension code) with browser + `chrome` globals. Add per-file globals there when scripts share functions.
+- Extension code is ES modules: `background.js` is a module service worker importing `lib/*.js`. `eslint.config.js` lints root `*.js` and `lib/**/*.js` as modules with browser + `chrome` globals.
+- Functions injected via `chrome.scripting.executeScript({ func })` are serialised: keep them self-contained (no imports, no closures). Put parsing into pure `lib/` functions.
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
 ## Standing Orders
@@ -37,12 +38,14 @@ Unless following the boy scout rule: only do modifications requested.
 - Always set reasonable timeouts on operations that might hang.
 - Follow the **test automation pyramid** (Martin Fowler): test at the lowest layer that meaningfully covers the functionality — do not duplicate coverage at a higher layer.
   - **Unit tests** (Node.js, no browser): pure functions. Run with `npm test`.
-  - **Integration tests** (Node.js, external calls mocked): only for behavior that cannot be verified at unit level. Run with `npm test`.
+  - **Integration tests** (Node.js, external calls mocked): only for behavior that cannot be verified at unit level. Live in `tests/integration/`; stub `globalThis.chrome` before dynamically importing `background.js`. Run with `npm test`.
   - **E2E tests** (Playwright, Chrome with extension loaded): popup UI, extension lifecycle, and flows that require a real browser context. Run with `npm run test:e2e`. Uses `headless: false` — Chrome extensions require it; use headless mode for everything else. Apply the **Automation in Testing** pattern: automate setup and result verification; let the human perform only steps that need a real website. Document every remaining manual step and why it cannot be automated.
   - **Visual debugging**: when automated assertions are insufficient to diagnose a failure, take a whole-browser screenshot via macOS `screencapture` (e.g. `screencapture -x /tmp/debug.png`) or via Playwright's `page.screenshot()`, then analyse the image.
 - Automate every testing step that can be automated.
 - `npm test` runs lint + unit/integration tests. `npm run test:e2e` runs Playwright E2E tests. Both must pass before committing.
-- No E2E tests exist yet: `tests/e2e/` and its fixture (extension ID derived from the background service worker) come with the first background script. Until then `npm run test:e2e` fails with "No tests found".
+- E2E fixture (`tests/e2e/fixtures.js`): persistent Chromium context with the extension loaded, plus a local HTTP server for the image. JoyClub URLs are served from sanitised HTML in `tests/e2e/fixtures/` via `page.route`. Playwright cannot click the toolbar icon, so tests call `globalThis.handleActionClick(tab)` inside the service worker.
+- The E2E browser runs with `--disable-features=LocalNetworkAccessChecks`: otherwise Chrome shows a permission prompt when the routed `https://www.joyclub.de` page loads its image from `127.0.0.1`, and `page.goto` hangs.
+- After a Playwright upgrade run `npx playwright install chromium`, or launching fails with "Executable doesn't exist".
 - Playwright's timeout is 60 s: it charges fixture teardown (closing the headed Chrome) against the test budget, so short budgets get flaky.
 
 ## Linting
