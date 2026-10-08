@@ -25,11 +25,11 @@ export default [
     ignores: ['vendor/**', 'node_modules/**'],
   },
   {
-    files: ['*.js'],
+    files: ['*.js', 'lib/**/*.js'],
     ignores: ['*.config.js'],
     languageOptions: {
       ecmaVersion: 2022,
-      sourceType: 'script',
+      sourceType: 'module',
       globals: { ...chromeGlobal, ...browserGlobals },
     },
     rules,
