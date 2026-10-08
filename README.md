@@ -7,5 +7,5 @@ Many websites hide images behind a transparent GIF, so downloading the image jus
 ```sh
 npm install        # also activates the pre-commit hook
 npm test           # lint + unit tests (runs on every commit and in CI)
-npm run test:e2e   # Playwright E2E, headed Chrome with the extension loaded
+npm run test:e2e   # Playwright E2E, headed Chrome with the extension loaded (no tests yet)
 ```

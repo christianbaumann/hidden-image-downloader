@@ -1,3 +1,17 @@
+const chromeGlobal = {
+  chrome: 'readonly',
+};
+const browserGlobals = {
+  document: 'readonly',
+  window: 'readonly',
+  console: 'readonly',
+  fetch: 'readonly',
+  URL: 'readonly',
+  Blob: 'readonly',
+  setTimeout: 'readonly',
+  globalThis: 'readonly',
+};
+
 const rules = {
   'no-unused-vars': 'error',
   'no-undef': 'error',
@@ -9,6 +23,16 @@ const rules = {
 export default [
   {
     ignores: ['vendor/**', 'node_modules/**'],
+  },
+  {
+    files: ['*.js'],
+    ignores: ['*.config.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: { ...chromeGlobal, ...browserGlobals },
+    },
+    rules,
   },
   {
     files: ['tests/**/*.js', 'playwright.config.js'],
