@@ -30,6 +30,6 @@ test('manifest grants host access to JoyClub only', () => {
 });
 
 test('manifest action has a title and no popup', () => {
-  assert.ok(manifest.action.default_title);
+  assert.equal(manifest.action.default_title, 'Download hidden image');
   assert.equal(manifest.action.default_popup, undefined);
 });

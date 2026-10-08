@@ -16,8 +16,17 @@ const ERROR_REASONS = {
   DownloadFailedError: 'download failed',
 };
 
+// The tab may close mid-click; its badge is gone then anyway.
+async function updateBadge(updates) {
+  try {
+    await Promise.all(updates);
+  } catch {
+    console.warn('badge update failed');
+  }
+}
+
 async function clearBadge(tabId) {
-  await Promise.all([
+  await updateBadge([
     chrome.action.setBadgeText({ tabId, text: '' }),
     chrome.action.setTitle({ tabId, title: DEFAULT_ACTION_TITLE }),
   ]);
@@ -25,7 +34,7 @@ async function clearBadge(tabId) {
 
 async function showError(tabId, reason) {
   console.warn(reason);
-  await Promise.all([
+  await updateBadge([
     chrome.action.setBadgeText({ tabId, text: BADGE_ERROR_TEXT }),
     chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_ERROR_COLOR }),
     chrome.action.setTitle({ tabId, title: ERROR_TITLE_PREFIX + reason }),

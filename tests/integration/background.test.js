@@ -50,6 +50,7 @@ const lastTitle = () => callsNamed('setTitle').at(-1).title;
 const lastBadgeText = () => callsNamed('setBadgeText').at(-1).text;
 
 beforeEach(() => {
+  mock.restoreAll();
   calls = [];
   executeScript = async () => [{ result: VALID_DATA }];
   download = async () => DOWNLOAD_ID;
@@ -112,6 +113,7 @@ describe('handleActionClick', () => {
     assert.equal(await handleActionClick(TAB), null);
     assert.equal(lastBadgeText(), '!');
     assert.match(lastTitle(), /no image open in the lightbox/);
+    assert.equal(callsNamed('download').length, 0);
   });
 
   test('missing image URL shows "image address not found"', async () => {
@@ -119,6 +121,7 @@ describe('handleActionClick', () => {
 
     assert.equal(await handleActionClick(TAB), null);
     assert.match(lastTitle(), /image address not found/);
+    assert.equal(callsNamed('download').length, 0);
   });
 
   test('download rejection shows "download failed"', async () => {
@@ -156,10 +159,28 @@ describe('handleActionClick', () => {
     await handleActionClick(TAB);
     await handleActionClick(OTHER_TAB);
 
-    const badgeCalls = [...callsNamed('setBadgeText'), ...callsNamed('setBadgeBackgroundColor'), ...callsNamed('setTitle')];
-    assert.deepEqual(new Set(badgeCalls.map(({ tabId }) => tabId)), new Set([TAB.id, OTHER_TAB.id]));
-    assert.ok(badgeCalls.every(({ tabId }) => tabId !== undefined));
-    const firstClick = calls.slice(0, calls.findIndex(([, details]) => details.tabId === OTHER_TAB.id));
-    assert.ok(firstClick.filter(([name]) => name.startsWith('set')).every(([, details]) => details.tabId === TAB.id));
+    const split = calls.findIndex(([, details]) => details.tabId === OTHER_TAB.id);
+    const badgeTabIds = (clickCalls) => clickCalls.filter(([name]) => name.startsWith('set')).map(([, { tabId }]) => tabId);
+    assert.deepEqual(new Set(badgeTabIds(calls.slice(0, split))), new Set([TAB.id]));
+    assert.deepEqual(new Set(badgeTabIds(calls.slice(split))), new Set([OTHER_TAB.id]));
+  });
+
+  test('logs only the reason, no URL or title', async () => {
+    executeScript = async () => [{ result: { ...VALID_DATA, style: 'opacity: 1' } }];
+
+    await handleActionClick(TAB);
+
+    assert.deepEqual(console.warn.mock.calls.map((call) => call.arguments), [['image address not found']]);
+  });
+
+  test('closed tab: failing badge calls do not reject the click', async () => {
+    const closedTab = async () => {
+      throw new Error('No tab with id: 7.');
+    };
+    mock.method(chrome.action, 'setBadgeText', closedTab);
+    mock.method(chrome.action, 'setTitle', closedTab);
+    executeScript = closedTab;
+
+    assert.equal(await handleActionClick(TAB), null);
   });
 });
