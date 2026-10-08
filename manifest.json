@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "Hidden Image Downloader",
+  "version": "0.1.0",
+  "description": "Download images that websites hide behind a transparent overlay.",
+  "author": "Christian Baumann <mail@christianbaumann.dev> (www.christianbaumann.dev)"
+}
