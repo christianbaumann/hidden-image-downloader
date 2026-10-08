@@ -260,6 +260,8 @@ describe('fetchProfileAlbums', () => {
   const TOKEN = 'test-token';
   const MAIN_CARD = { href: '/profile/fotoalbum/1000001.testowner.html', title: 'Fotos von uns' };
   const REGULAR_CARD = { href: '/profile/fotoalbum/1000001-201.testowner.html', title: 'Aktuelles' };
+  const HTTP_OK = 200;
+  const HTTP_UNAUTHORIZED = 401;
   const HTTP_FORBIDDEN = 403;
   const HTTP_SERVER_ERROR = 500;
   const LIST = listResult({ main: ['101'], albums: [{ id: '201', title: 'Aktuelles', ids: ['102'] }] });
@@ -268,7 +270,7 @@ describe('fetchProfileAlbums', () => {
   let fetchCalls;
   let responses;
 
-  const jsonResponse = (body, status = 200) => ({ ok: status < 300, status, json: async () => body });
+  const jsonResponse = (body, status = HTTP_OK) => ({ ok: status === HTTP_OK, status, json: async () => body });
   const listBody = (list) => ({ data: { profileAlbum: { listByUserId: list } } });
   const sourcesBody = (itemList) => ({ data: { profileAlbum: { image: { source: { sourceByImageIdList: { itemList } } } } } });
 
@@ -286,7 +288,7 @@ describe('fetchProfileAlbums', () => {
   beforeEach(() => {
     fetchCalls = [];
     responses = [
-      () => jsonResponse({ status_code: 200, content: { access_token: TOKEN }, error: null }),
+      () => jsonResponse({ status_code: HTTP_OK, content: { access_token: TOKEN }, error: null }),
       () => jsonResponse(listBody(LIST)),
       () => jsonResponse(sourcesBody(SOURCES)),
     ];
@@ -352,7 +354,7 @@ describe('fetchProfileAlbums', () => {
 
   const failures = {
     'token HTTP 403': [0, () => jsonResponse({}, HTTP_FORBIDDEN)],
-    'token JSON without access_token': [0, () => jsonResponse({ status_code: 401, content: null, error: 'x' })],
+    'token JSON without access_token': [0, () => jsonResponse({ status_code: HTTP_UNAUTHORIZED, content: null, error: 'x' })],
     'list HTTP 500': [1, () => jsonResponse({}, HTTP_SERVER_ERROR)],
     'GraphQL errors array': [1, () => jsonResponse({ errors: [{ message: 'denied' }], data: null })],
     'sources fetch throws': [2, () => { throw new TypeError('Failed to fetch'); }],

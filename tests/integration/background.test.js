@@ -462,6 +462,8 @@ describe('profile ZIP', () => {
   });
 
   test('a profile URL with a lightbox open still takes the album path', async () => {
+    extracted.extractLightboxData = VALID_DATA;
+
     await handleActionClick(PROFILE_TAB);
 
     assert.equal(injectedFunctions().includes('extractLightboxData'), false);
