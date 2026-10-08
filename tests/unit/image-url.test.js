@@ -35,8 +35,8 @@ describe('toJpgUrl', () => {
 
 describe('largestSrcsetUrl', () => {
   const BASE = 'https://www.joyclub.de/profile/1.html';
-  const IMAGE = 'https://image-user.feig-partner.de/u/orig';
-  const WIDTHS = [240, 480, 640, 800, 1024, 1280, 1440, 1600, 1920];
+  const IMAGE = 'https://image-user.feig-partner.de/11111111-1111-4111-8111-111111111111/orig';
+  const WIDTHS = [1920, 1440, 960, 720, 480, 420, 360, 300, 240];
 
   test('picks the 1920w candidate of a real-shape srcset', () => {
     const srcset = WIDTHS.map((w) => `${IMAGE}/image_${w}_k.webp?cache=h ${w}w`).join(', ');

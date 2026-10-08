@@ -52,7 +52,7 @@ describe('toZipRequest', () => {
 
   test('names the ZIP <owner>_<timestamp>.zip', () => {
     const { zipName } = toZipRequest(raw([{ srcset: srcset(UUID_1) }]), DATE);
-    assert.match(zipName, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.equal(zipName, 'TestOwner_2026-10-08_174500.zip');
   });
 
   test('throws NothingToDownloadError for null raw', () => {
