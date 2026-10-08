@@ -4,6 +4,10 @@ const DEFAULT_ACTION_TITLE = 'Download hidden image';
 const ERROR_TITLE_PREFIX = 'Hidden Image Downloader: ';
 const BADGE_ERROR_TEXT = '!';
 const BADGE_ERROR_COLOR = '#d00000';
+const CONFLICT_ACTION = 'uniquify';
+
+// Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
+const pendingFilenames = new Map();
 
 class DownloadFailedError extends Error {
   name = 'DownloadFailedError';
@@ -51,11 +55,22 @@ async function extractFromTab(tabId) {
 }
 
 async function startDownload(url, filename) {
+  pendingFilenames.set(url, filename);
   try {
-    return await chrome.downloads.download({ url, filename, conflictAction: 'uniquify', saveAs: false });
+    return await chrome.downloads.download({ url, filename, conflictAction: CONFLICT_ACTION, saveAs: false });
   } catch {
+    pendingFilenames.delete(url);
     throw new DownloadFailedError();
   }
+}
+
+function suggestOwnFilename(item, suggest) {
+  const filename = pendingFilenames.get(item.url);
+  if (item.byExtensionId !== chrome.runtime.id || filename === undefined) {
+    return;
+  }
+  pendingFilenames.delete(item.url);
+  suggest({ filename, conflictAction: CONFLICT_ACTION });
 }
 
 export async function handleActionClick(tab) {
@@ -76,4 +91,5 @@ export async function handleActionClick(tab) {
 }
 
 chrome.action.onClicked.addListener(handleActionClick);
+chrome.downloads.onDeterminingFilename.addListener(suggestOwnFilename);
 globalThis.handleActionClick = handleActionClick;

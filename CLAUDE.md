@@ -12,6 +12,7 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - Dev tooling (ESLint, Playwright, …) lives in `package.json` devDependencies — npm is fine for tools that never ship in the extension.
 - Firefox: MV3 needs `browser_specific_settings.gecko` (`id`, `data_collection_permissions`) and `background.scripts` instead of `background.service_worker`. Not handled yet; `web-ext lint` reports it.
 - Extension code is ES modules: `background.js` is a module service worker importing `lib/*.js`. `eslint.config.js` lints root `*.js` and `lib/**/*.js` as modules with browser + `chrome` globals.
+- Chrome ignores the `filename` passed to `chrome.downloads.download()` while any other extension listens to `downloads.onDeterminingFilename` (e.g. MarkSnip, Video DownloadHelper). `background.js` therefore suggests its own filename in that event, only for downloads it started.
 - Functions injected via `chrome.scripting.executeScript({ func })` are serialised: keep them self-contained (no imports, no closures). Put parsing into pure `lib/` functions.
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
@@ -44,6 +45,7 @@ Unless following the boy scout rule: only do modifications requested.
 - Automate every testing step that can be automated.
 - `npm test` runs lint + unit/integration tests. `npm run test:e2e` runs Playwright E2E tests. Both must pass before committing.
 - E2E fixture (`tests/e2e/fixtures.js`): persistent Chromium context with the extension loaded, plus a local HTTP server for the image. JoyClub URLs are served from sanitised HTML in `tests/e2e/fixtures/` via `page.route`. Playwright cannot click the toolbar icon, so tests call `globalThis.handleActionClick(tab)` inside the service worker.
+- Playwright saves downloads under GUID names, so E2E can assert only the filename the extension requested, not the name on disk. The real on-disk name is a manual check.
 - The E2E browser runs with `--disable-features=LocalNetworkAccessChecks`: otherwise Chrome shows a permission prompt when the routed `https://www.joyclub.de` page loads its image from `127.0.0.1`, and `page.goto` hangs.
 - After a Playwright upgrade run `npx playwright install chromium`, or launching fails with "Executable doesn't exist".
 - Playwright's timeout is 60 s: it charges fixture teardown (closing the headed Chrome) against the test budget, so short budgets get flaky.

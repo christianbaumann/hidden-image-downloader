@@ -5,6 +5,8 @@ const TAB = { id: 7 };
 const OTHER_TAB = { id: 8 };
 const IMAGE_URL = 'https://cdn.joyclub.de/img/abc_1920.webp?c=1';
 const DOWNLOAD_ID = 42;
+const OWN_EXTENSION_ID = 'own-extension-id';
+const OTHER_EXTENSION_ID = 'other-extension-id';
 const VALID_DATA = {
   style: `background-image: url("${IMAGE_URL}")`,
   title: 'Rück: Ansicht',
@@ -14,6 +16,7 @@ const VALID_DATA = {
 };
 
 const listeners = [];
+const filenameListeners = [];
 let calls;
 let executeScript;
 let download;
@@ -23,6 +26,7 @@ const record = (name) => async (details) => {
 };
 
 globalThis.chrome = {
+  runtime: { id: OWN_EXTENSION_ID },
   action: {
     onClicked: { addListener: (listener) => listeners.push(listener) },
     setBadgeText: record('setBadgeText'),
@@ -36,6 +40,7 @@ globalThis.chrome = {
     },
   },
   downloads: {
+    onDeterminingFilename: { addListener: (listener) => filenameListeners.push(listener) },
     download: async (options) => {
       calls.push(['download', options]);
       return download(options);
@@ -48,6 +53,15 @@ const { handleActionClick } = await import('../../background.js');
 const callsNamed = (name) => calls.filter(([callName]) => callName === name).map(([, details]) => details);
 const lastTitle = () => callsNamed('setTitle').at(-1).title;
 const lastBadgeText = () => callsNamed('setBadgeText').at(-1).text;
+
+// Fires onDeterminingFilename like Chrome; returns the listener's suggestion or undefined.
+function determineFilename(item) {
+  let suggestion;
+  filenameListeners[0](item, (value) => {
+    suggestion = value;
+  });
+  return suggestion;
+}
 
 beforeEach(() => {
   mock.restoreAll();
@@ -62,6 +76,60 @@ describe('background registration', () => {
     assert.equal(listeners.length, 1);
     assert.equal(listeners[0], handleActionClick);
     assert.equal(globalThis.handleActionClick, handleActionClick);
+  });
+
+  test('registers one onDeterminingFilename listener', () => {
+    assert.equal(filenameListeners.length, 1);
+  });
+});
+
+// Another extension's onDeterminingFilename listener makes Chrome ignore download()'s filename.
+describe('onDeterminingFilename', () => {
+  test('suggests our filename for our own download', async () => {
+    let suggestion;
+    download = async ({ url }) => {
+      suggestion = determineFilename({ url, byExtensionId: OWN_EXTENSION_ID });
+      return DOWNLOAD_ID;
+    };
+
+    const result = await handleActionClick(TAB);
+
+    assert.deepEqual(suggestion, { filename: result.filename, conflictAction: 'uniquify' });
+  });
+
+  test('leaves downloads of other extensions alone', async () => {
+    let suggestion = 'not called';
+    download = async ({ url }) => {
+      suggestion = determineFilename({ url, byExtensionId: OTHER_EXTENSION_ID });
+      return DOWNLOAD_ID;
+    };
+
+    await handleActionClick(TAB);
+
+    assert.equal(suggestion, undefined);
+  });
+
+  test('leaves user downloads alone', () => {
+    assert.equal(determineFilename({ url: IMAGE_URL }), undefined);
+  });
+
+  test('suggests only once per download', async () => {
+    download = async ({ url }) => {
+      determineFilename({ url, byExtensionId: OWN_EXTENSION_ID });
+      return DOWNLOAD_ID;
+    };
+    await handleActionClick(TAB);
+
+    assert.equal(determineFilename({ url: IMAGE_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
+  });
+
+  test('forgets the filename when download() rejects', async () => {
+    download = async () => {
+      throw new Error('Invalid filename');
+    };
+    await handleActionClick(TAB);
+
+    assert.equal(determineFilename({ url: IMAGE_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
   });
 });
 
