@@ -435,6 +435,7 @@ describe('profile ZIP', () => {
     assert.equal(build.target, 'offscreen');
     assert.equal(build.action, 'build-zip');
     assert.deepEqual(build.entries.map(({ name }) => name), ['TestOwner_01_11111111.jpg', 'TestOwner_02_22222222.jpg']);
+    assert.deepEqual(build.reports, []);
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
     assert.match(options.filename, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);

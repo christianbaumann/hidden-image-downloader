@@ -144,11 +144,11 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-async function buildZipOffscreen(entries) {
+async function buildZipOffscreen(entries, reports) {
   let response;
   try {
     await ensureOffscreenDocument();
-    response = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'build-zip', entries });
+    response = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'build-zip', entries, reports });
   } catch {
     throw new DownloadFailedError();
   }
@@ -158,12 +158,12 @@ async function buildZipOffscreen(entries) {
   return response;
 }
 
-async function downloadZip(tabId, { zipName, entries }) {
+async function downloadZip(tabId, { zipName, entries, reports = [] }) {
   activeZipJobs++;
   let response;
   let downloadId;
   try {
-    response = await buildZipOffscreen(entries);
+    response = await buildZipOffscreen(entries, reports);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {
     activeZipJobs--;

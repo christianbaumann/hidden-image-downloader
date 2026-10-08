@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import { FETCH_CONCURRENCY, buildZip, mapWithLimit } from '../../lib/zip.js';
-import { MISSING_REPORT_NAME } from '../../lib/profile.js';
+import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
 
 const URL_A = 'https://img.example/a.jpg';
 const URL_B = 'https://img.example/b.jpg';
@@ -14,6 +14,8 @@ const ENTRIES = [
   { url: URL_A, name: 'Owner_01_a.jpg' },
   { url: URL_B, name: 'Owner_02_b.jpg' },
 ];
+const SKIPPED_TEXT = 'Lady (9 photos)\n';
+const REPORTS = [{ name: SKIPPED_REPORT_NAME, text: SKIPPED_TEXT }];
 
 function okResponse(bytes) {
   return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array(bytes).buffer };
@@ -143,5 +145,35 @@ describe('buildZip', () => {
     const { added } = await buildZip(entries, { JSZip, fetch });
     assert.equal(added, entries.length);
     assert.equal(peak, FETCH_CONCURRENCY);
+  });
+
+  it('writes a report next to the photos', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: okResponse(BYTES_B) });
+    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });
+    const zip = await readZip(blob);
+    assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', 'Owner_02_b.jpg', SKIPPED_REPORT_NAME]);
+    assert.equal(await zip.file(SKIPPED_REPORT_NAME).async('string'), SKIPPED_TEXT);
+  });
+
+  it('writes reports and missing.txt together', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new Error('x') });
+    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });
+    const zip = await readZip(blob);
+    assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', MISSING_REPORT_NAME, SKIPPED_REPORT_NAME]);
+  });
+
+  it('creates folders from entry names', async () => {
+    const entries = [{ url: URL_A, name: 'A/x.jpg' }];
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A) });
+    const { blob } = await buildZip(entries, { JSZip, fetch });
+    const zip = await readZip(blob);
+    assert.deepEqual(Object.keys(zip.files).sort(), ['A/', 'A/x.jpg']);
+  });
+
+  it('writes no reports when every fetch fails', async () => {
+    const { fetch } = stubFetch({ [URL_A]: new Error('x'), [URL_B]: new Error('y') });
+    const { blob, added } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });
+    assert.equal(blob, null);
+    assert.equal(added, 0);
   });
 });
