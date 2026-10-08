@@ -17,6 +17,12 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - Lightbox `.webp` images: `background.js` probes the `.jpg` sibling with `HEAD` (5 s timeout) and falls back to the `.webp`. In production the probe goes to a host-permitted origin; in E2E it goes to `127.0.0.1`, which has no host permission, so the fixture server must send credentialed CORS headers (`Access-Control-Allow-Origin: <Origin>`, `Access-Control-Allow-Credentials: true`).
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
+## Blueprint Repos
+Always check these repos for new mechanisms, patterns, etc.; use them as blueprint. Do NOT re-invent the wheel.
+- `/Users/christian.baumann/git_repos/_own/conf-export-ext`
+- `/Users/christian.baumann/git_repos/_own/jira-ticket-exporter`
+- `/Users/christian.baumann/git_repos/_own/ms-teams-chat-exporter`
+
 ## Standing Orders
 - Update this file when learning something new about the project.
 - Update README.md when relevant changes happen.
