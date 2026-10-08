@@ -5,7 +5,7 @@ const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const NO_LIGHTBOX_URL = 'https://www.joyclub.de/e2e/no-lightbox';
 const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
-const EXPECTED_FILENAME = /^TestOwner_Rück-Ansicht_\d{4}-\d{2}-\d{2}_\d{6}\.webp$/;
+const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_\\d{4}-\\d{2}-\\d{2}_\\d{6}';
 
 async function serve(page, url, html) {
   await page.route(url, (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
@@ -42,13 +42,24 @@ function downloadState(serviceWorker, id) {
   }, id);
 }
 
-test('downloads the active lightbox image with owner and title in the filename', async ({ page, serviceWorker, imageUrl }) => {
-  await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', imageUrl));
+test('downloads the lightbox image as jpg with owner and title in the filename', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', `${imageServer.base}/image.webp`));
 
   const result = await clickAction(serviceWorker);
 
-  expect(result.filename).toMatch(EXPECTED_FILENAME);
-  expect(result.url).toBe(imageUrl);
+  expect(result.filename).toMatch(new RegExp(`^${EXPECTED_STEM}\\.jpg$`));
+  expect(result.url).toBe(`${imageServer.base}/image.jpg`);
+  await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
+    .toBe('complete');
+});
+
+test('falls back to the webp when the server has no jpg', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', `${imageServer.base}/only-webp.webp`));
+
+  const result = await clickAction(serviceWorker);
+
+  expect(result.filename).toMatch(new RegExp(`^${EXPECTED_STEM}\\.webp$`));
+  expect(result.url).toBe(`${imageServer.base}/only-webp.webp`);
   await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');
 });

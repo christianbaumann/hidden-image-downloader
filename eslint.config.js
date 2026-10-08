@@ -7,6 +7,7 @@ const browserGlobals = {
   console: 'readonly',
   fetch: 'readonly',
   URL: 'readonly',
+  AbortSignal: 'readonly',
   Blob: 'readonly',
   setTimeout: 'readonly',
   globalThis: 'readonly',

@@ -4,11 +4,26 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const EXTENSION_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const IMAGE_PATH = '/image.webp';
 // 1x1 lossless WebP.
-const IMAGE_BYTES = Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64');
+const WEBP = { type: 'image/webp', bytes: Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64') };
+// JPEG header only; nothing decodes it.
+const JPEG = { type: 'image/jpeg', bytes: Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2Q==', 'base64') };
+// /only-webp.jpg is missing on purpose: the extension must fall back to the webp.
+const ROUTES = {
+  '/image.webp': WEBP,
+  '/image.jpg': JPEG,
+  '/only-webp.webp': WEBP,
+};
 const HTTP_OK = 200;
 const HTTP_NOT_FOUND = 404;
+
+// The extension probes 127.0.0.1 without host permission, so every answer needs credentialed CORS headers.
+function corsHeaders(request) {
+  return {
+    'Access-Control-Allow-Origin': request.headers.origin ?? '*',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
 
 export const test = base.extend({
   context: async ({}, use) => {
@@ -31,16 +46,17 @@ export const test = base.extend({
   serviceWorker: async ({ context }, use) => {
     await use(context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker'));
   },
-  imageUrl: async ({}, use) => {
+  imageServer: async ({}, use) => {
     const server = http.createServer((request, response) => {
-      if (request.url !== IMAGE_PATH) {
-        response.writeHead(HTTP_NOT_FOUND).end();
+      const image = ROUTES[new URL(request.url, 'http://localhost').pathname];
+      if (!image) {
+        response.writeHead(HTTP_NOT_FOUND, corsHeaders(request)).end();
         return;
       }
-      response.writeHead(HTTP_OK, { 'Content-Type': 'image/webp' }).end(IMAGE_BYTES);
+      response.writeHead(HTTP_OK, { ...corsHeaders(request), 'Content-Type': image.type }).end(image.bytes);
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    await use(`http://127.0.0.1:${server.address().port}${IMAGE_PATH}`);
+    await use({ base: `http://127.0.0.1:${server.address().port}` });
     await new Promise((resolve) => server.close(resolve));
   },
 });

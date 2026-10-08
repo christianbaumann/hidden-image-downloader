@@ -8,7 +8,7 @@ Currently supports JoyClub (`www.joyclub.de`, `www.joyclub.com`) in Chrome only.
 
 1. Load the extension unpacked via `chrome://extensions` (developer mode).
 2. Open a photo in the JoyClub lightbox.
-3. Click the toolbar icon. The image is saved to the default download folder as `<Owner>_<Title>_<YYYY-MM-DD_HHmmss>.<ext>`.
+3. Click the toolbar icon. The image is saved to the default download folder as `<Owner>_<Title>_<YYYY-MM-DD_HHmmss>.jpg`. If the site offers no jpg, the original `.webp` is saved instead.
 
 If nothing can be downloaded (other site, no open lightbox, no image address), the icon shows a red `!` badge and its tooltip names the reason. The badge only reports failures before the download starts; later network errors show up in Chrome's download list only.
 

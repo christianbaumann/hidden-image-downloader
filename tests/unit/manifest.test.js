@@ -25,8 +25,12 @@ test('manifest requests only scripting and downloads permissions', () => {
   assert.deepEqual(manifest.permissions, ['scripting', 'downloads']);
 });
 
-test('manifest grants host access to JoyClub only', () => {
-  assert.deepEqual(manifest.host_permissions, ['https://www.joyclub.de/*', 'https://www.joyclub.com/*']);
+test('manifest grants host access to JoyClub and its image host', () => {
+  assert.deepEqual(manifest.host_permissions, [
+    'https://www.joyclub.de/*',
+    'https://www.joyclub.com/*',
+    'https://image-user.feig-partner.de/*',
+  ]);
 });
 
 test('manifest action has a title and no popup', () => {

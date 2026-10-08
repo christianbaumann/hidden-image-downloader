@@ -1,10 +1,11 @@
-import { extractLightboxData, toDownloadRequest, UnsupportedPageError } from './lib/lightbox.js';
+import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 
 const DEFAULT_ACTION_TITLE = 'Download hidden image';
 const ERROR_TITLE_PREFIX = 'Hidden Image Downloader: ';
 const BADGE_ERROR_TEXT = '!';
 const BADGE_ERROR_COLOR = '#d00000';
 const CONFLICT_ACTION = 'uniquify';
+const PROBE_TIMEOUT_MS = 5000;
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -54,6 +55,25 @@ async function extractFromTab(tabId) {
   }
 }
 
+// HEAD every candidate but the last; the first ok one wins, the last is the unprobed fallback.
+async function firstAvailable(candidates) {
+  for (const candidate of candidates.slice(0, -1)) {
+    try {
+      const response = await fetch(candidate.url, {
+        method: 'HEAD',
+        credentials: 'include',
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      if (response.ok) {
+        return candidate;
+      }
+    } catch {
+      // Unreachable candidate: try the next one.
+    }
+  }
+  return candidates.at(-1);
+}
+
 async function startDownload(url, filename) {
   pendingFilenames.set(url, filename);
   try {
@@ -77,7 +97,8 @@ export async function handleActionClick(tab) {
   await clearBadge(tab.id);
   try {
     const raw = await extractFromTab(tab.id);
-    const { url, filename } = toDownloadRequest(raw, new Date());
+    const candidates = toDownloadCandidates(raw, new Date());
+    const { url, filename } = await firstAvailable(candidates);
     const downloadId = await startDownload(url, filename);
     return { url, filename, downloadId };
   } catch (error) {

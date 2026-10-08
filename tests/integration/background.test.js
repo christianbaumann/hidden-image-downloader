@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 const TAB = { id: 7 };
 const OTHER_TAB = { id: 8 };
 const IMAGE_URL = 'https://cdn.joyclub.de/img/abc_1920.webp?c=1';
+const JPG_URL = 'https://cdn.joyclub.de/img/abc_1920.jpg?c=1';
+const HTTP_OK = 200;
+const HTTP_NOT_FOUND = 404;
 const DOWNLOAD_ID = 42;
 const OWN_EXTENSION_ID = 'own-extension-id';
 const OTHER_EXTENSION_ID = 'other-extension-id';
@@ -20,6 +23,7 @@ const filenameListeners = [];
 let calls;
 let executeScript;
 let download;
+let fetchImpl;
 
 const record = (name) => async (details) => {
   calls.push([name, details]);
@@ -48,6 +52,11 @@ globalThis.chrome = {
   },
 };
 
+globalThis.fetch = async (url, options) => {
+  calls.push(['fetch', { url, ...options }]);
+  return fetchImpl(url, options);
+};
+
 const { handleActionClick } = await import('../../background.js');
 
 const callsNamed = (name) => calls.filter(([callName]) => callName === name).map(([, details]) => details);
@@ -68,6 +77,7 @@ beforeEach(() => {
   calls = [];
   executeScript = async () => [{ result: VALID_DATA }];
   download = async () => DOWNLOAD_ID;
+  fetchImpl = async () => ({ ok: true, status: HTTP_OK });
   mock.method(console, 'warn', () => {});
 });
 
@@ -110,7 +120,7 @@ describe('onDeterminingFilename', () => {
   });
 
   test('leaves user downloads alone', () => {
-    assert.equal(determineFilename({ url: IMAGE_URL }), undefined);
+    assert.equal(determineFilename({ url: JPG_URL }), undefined);
   });
 
   test('suggests only once per download', async () => {
@@ -120,7 +130,7 @@ describe('onDeterminingFilename', () => {
     };
     await handleActionClick(TAB);
 
-    assert.equal(determineFilename({ url: IMAGE_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
+    assert.equal(determineFilename({ url: JPG_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
   });
 
   test('forgets the filename when download() rejects', async () => {
@@ -129,7 +139,7 @@ describe('onDeterminingFilename', () => {
     };
     await handleActionClick(TAB);
 
-    assert.equal(determineFilename({ url: IMAGE_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
+    assert.equal(determineFilename({ url: JPG_URL, byExtensionId: OWN_EXTENSION_ID }), undefined);
   });
 });
 
@@ -138,11 +148,11 @@ describe('handleActionClick', () => {
     const result = await handleActionClick(TAB);
 
     const [options] = callsNamed('download');
-    assert.equal(options.url, IMAGE_URL);
-    assert.match(options.filename, /^TestOwner_Rück_-Ansicht_\d{4}-\d{2}-\d{2}_\d{6}\.webp$/);
+    assert.equal(options.url, JPG_URL);
+    assert.match(options.filename, /^TestOwner_Rück_-Ansicht_\d{4}-\d{2}-\d{2}_\d{6}\.jpg$/);
     assert.equal(options.conflictAction, 'uniquify');
     assert.equal(options.saveAs, false);
-    assert.deepEqual(result, { url: IMAGE_URL, filename: options.filename, downloadId: DOWNLOAD_ID });
+    assert.deepEqual(result, { url: JPG_URL, filename: options.filename, downloadId: DOWNLOAD_ID });
   });
 
   test('injects the extractor into the clicked tab', async () => {
@@ -250,5 +260,48 @@ describe('handleActionClick', () => {
     executeScript = closedTab;
 
     assert.equal(await handleActionClick(TAB), null);
+  });
+});
+
+describe('jpg probe', () => {
+  test('probes the jpg with HEAD, credentials and a timeout signal', async () => {
+    await handleActionClick(TAB);
+
+    const [probe] = callsNamed('fetch');
+    assert.equal(probe.url, JPG_URL);
+    assert.equal(probe.method, 'HEAD');
+    assert.equal(probe.credentials, 'include');
+    assert.ok(probe.signal instanceof AbortSignal);
+  });
+
+  test('missing jpg falls back to the original webp', async () => {
+    fetchImpl = async () => ({ ok: false, status: HTTP_NOT_FOUND });
+
+    const result = await handleActionClick(TAB);
+
+    assert.equal(result.url, IMAGE_URL);
+    assert.match(result.filename, /\.webp$/);
+    assert.equal(callsNamed('download')[0].url, IMAGE_URL);
+  });
+
+  test('failing probe falls back to the original webp', async () => {
+    fetchImpl = async () => {
+      throw new TypeError('Failed to fetch');
+    };
+
+    const result = await handleActionClick(TAB);
+
+    assert.equal(result.url, IMAGE_URL);
+    assert.match(result.filename, /\.webp$/);
+  });
+
+  test('a jpg lightbox image downloads without a probe', async () => {
+    const jpgOnly = { ...VALID_DATA, style: `background-image: url("${JPG_URL}")` };
+    executeScript = async () => [{ result: jpgOnly }];
+
+    const result = await handleActionClick(TAB);
+
+    assert.equal(callsNamed('fetch').length, 0);
+    assert.equal(result.url, JPG_URL);
   });
 });

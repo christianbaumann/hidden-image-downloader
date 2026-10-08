@@ -4,7 +4,7 @@ import {
   NoImageUrlError,
   NoLightboxError,
   parseBackgroundImageUrl,
-  toDownloadRequest,
+  toDownloadCandidates,
   UnsupportedPageError,
 } from '../../lib/lightbox.js';
 import { buildFilename } from '../../lib/filename.js';
@@ -67,7 +67,7 @@ describe('parseBackgroundImageUrl', () => {
   });
 });
 
-describe('toDownloadRequest', () => {
+describe('toDownloadCandidates', () => {
   const date = new Date(2026, 9, 8, 17, 45, 0);
   const raw = {
     style: 'background-image: url("https://x/img/a.webp?c=1"); opacity: 1',
@@ -77,26 +77,37 @@ describe('toDownloadRequest', () => {
     pageUrl: BASE_URL,
   };
 
-  test('builds url and filename from full raw data', () => {
-    const url = 'https://x/img/a.webp?c=1';
-    const expected = buildFilename({ owner: raw.owner, title: raw.title, photoId: raw.photoId, url, date });
-    const request = toDownloadRequest(raw, date);
-    assert.deepEqual(request, { url, filename: expected });
-    assert.equal(request.filename, 'BitPaerchen_Profilbild_2026-10-08_174500.webp');
+  test('offers the jpg first, then the original webp', () => {
+    const candidates = toDownloadCandidates(raw, date);
+    assert.deepEqual(candidates, [
+      { url: 'https://x/img/a.jpg?c=1', filename: 'BitPaerchen_Profilbild_2026-10-08_174500.jpg' },
+      { url: 'https://x/img/a.webp?c=1', filename: 'BitPaerchen_Profilbild_2026-10-08_174500.webp' },
+    ]);
+  });
+
+  test('builds filenames with buildFilename', () => {
+    const [first] = toDownloadCandidates(raw, date);
+    const expected = buildFilename({ owner: raw.owner, title: raw.title, photoId: raw.photoId, url: first.url, date });
+    assert.equal(first.filename, expected);
+  });
+
+  test('offers only the original for a jpg', () => {
+    const candidates = toDownloadCandidates({ ...raw, style: 'background-image: url("https://x/img/a.jpg")' }, date);
+    assert.deepEqual(candidates.map(({ url }) => url), ['https://x/img/a.jpg']);
   });
 
   test('throws NoLightboxError for null', () => {
-    assert.throws(() => toDownloadRequest(null, date), NoLightboxError);
-    assert.throws(() => toDownloadRequest(undefined, date), NoLightboxError);
+    assert.throws(() => toDownloadCandidates(null, date), NoLightboxError);
+    assert.throws(() => toDownloadCandidates(undefined, date), NoLightboxError);
   });
 
   test('throws NoImageUrlError for a style without url', () => {
-    assert.throws(() => toDownloadRequest({ ...raw, style: 'opacity: 1' }, date), NoImageUrlError);
+    assert.throws(() => toDownloadCandidates({ ...raw, style: 'opacity: 1' }, date), NoImageUrlError);
   });
 
   test('falls back when owner and title are missing', () => {
-    const request = toDownloadRequest({ ...raw, owner: null, title: '' }, date);
-    assert.equal(request.filename, 'unknown_photo-4711_2026-10-08_174500.webp');
+    const [first] = toDownloadCandidates({ ...raw, owner: null, title: '' }, date);
+    assert.equal(first.filename, 'unknown_photo-4711_2026-10-08_174500.jpg');
   });
 });
 
