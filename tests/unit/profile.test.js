@@ -12,10 +12,14 @@ import {
   skippedReport,
   missingReport,
 } from '../../lib/profile.js';
-import { IMAGE_BASE, albumRaw, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import {
+  IMAGE_BASE, albumRaw, captionsResult, listResult, profileTextResult, sourcesResult, testUuid,
+} from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
+const PROFILE_REPORTS = ['profile.md', 'profile.html'];
+const withoutProfile = (reports) => reports.filter(({ name }) => !PROFILE_REPORTS.includes(name));
 const UUID_1 = '11111111-1111-4111-8111-111111111111';
 describe('photoKey', () => {
   test('returns the first 8 chars of a UUID path segment', () => {
@@ -113,8 +117,8 @@ describe('toAlbumZipRequest', () => {
     assert.equal(toAlbumZipRequest(albumRaw(), DATE).zipName, 'TestOwner.zip');
   });
 
-  test('has no reports without restricted albums', () => {
-    assert.deepEqual(toAlbumZipRequest(rawFor({ main: ['1'] }), DATE).reports, []);
+  test('has only the profile files without restricted albums', () => {
+    assert.deepEqual(toAlbumZipRequest(rawFor({ main: ['1'] }), DATE).reports.map(({ name }) => name), PROFILE_REPORTS);
   });
 
   test('throws AlbumApiError for null or failed raw', () => {
@@ -140,7 +144,7 @@ describe('toAlbumZipRequest', () => {
   test('lists a restricted album in skipped.txt and gives it no folder', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE);
     assert.deepEqual(folders(request), ['Fotos-von-uns', 'Aktuelles']);
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
   });
 
   test('lists several restricted albums in API order', () => {
@@ -154,7 +158,7 @@ describe('toAlbumZipRequest', () => {
   test('gives an empty album no folder and does not list it as skipped', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'], albums: [{ title: 'Leer', ids: [] }] }), DATE);
     assert.deepEqual(folders(request), ['Fotos-von-uns']);
-    assert.deepEqual(request.reports, []);
+    assert.deepEqual(withoutProfile(request.reports), []);
   });
 
   test('numbers photos by their album position, leaving a gap for a source not found', () => {
@@ -251,6 +255,88 @@ describe('toAlbumZipRequest', () => {
   });
 });
 
+describe('toAlbumZipRequest profile files', () => {
+  const PROFILE_TEXT = profileTextResult({ motto: 'Carpe diem', description: 'Hallo [b]ihr[/b]' });
+  const report = (request, name) => request.reports.find((entry) => entry.name === name)?.text;
+  const withAlbumDescription = () => listResult({
+    main: ['101'],
+    albums: [
+      { id: '201', title: 'Aktuelles', ids: ['102'] },
+      { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
+    ],
+  });
+
+  test('adds profile.md and profile.html after the other reports', () => {
+    const request = toAlbumZipRequest(albumRaw({ profileText: PROFILE_TEXT }), DATE);
+
+    assert.deepEqual(request.reports.map(({ name }) => name), ['skipped.txt', ...PROFILE_REPORTS]);
+  });
+
+  test('profile.md holds the profile text and every saved album with its photos and captions', () => {
+    const list = withAlbumDescription();
+    list.regularAlbumResultList[0].description = 'Neu im [i]Herbst[/i]';
+    const captions = captionsResult([
+      { id: '101', title: 'Profilbild' },
+      { id: '102', title: 'Am See', description: 'kalt', hashtags: ['see'] },
+    ]);
+
+    const markdown = report(toAlbumZipRequest(albumRaw({ list, captions, profileText: PROFILE_TEXT }), DATE), 'profile.md');
+
+    assert.ok(markdown.includes('### Motto\n\nCarpe diem\n\n### About\n\nHallo **ihr**\n'));
+    assert.ok(markdown.includes(`### Fotos von uns\n\n- [TestOwner\\_Fotos-von-uns\\_01\\_${keyOf(1)}.jpg](Fotos-von-uns/TestOwner_Fotos-von-uns_01_${keyOf(1)}.jpg)\n`));
+    assert.ok(markdown.includes(`### Aktuelles\n\nNeu im *Herbst*\n\n- [Am See](Aktuelles/TestOwner_Aktuelles_01_${keyOf(2)}.jpg)\n  kalt\n  #see\n`));
+    assert.ok(!markdown.includes('Lady'));
+  });
+
+  test('keeps only string hashtags', () => {
+    const captions = captionsResult([{ id: '101', title: 'A', hashtags: ['see', { name: 'x' }, null] }]);
+
+    const markdown = report(toAlbumZipRequest(albumRaw({ captions }), DATE), 'profile.md');
+
+    assert.ok(markdown.includes('  #see\n'));
+  });
+
+  test('drops the placeholder title "..." and a caption that is no success', () => {
+    const captions = captionsResult([{ id: '101', title: '...' }, { id: '102', notFound: true }]);
+
+    const markdown = report(toAlbumZipRequest(albumRaw({ captions }), DATE), 'profile.md');
+
+    assert.ok(!markdown.includes('[...]'));
+    assert.ok(markdown.includes(`- [TestOwner\\_Aktuelles\\_01\\_${keyOf(2)}.jpg]`));
+  });
+
+  const missingTexts = {
+    'a failed request': null,
+    'an error answer': { __typename: 'ProfileByUserIdErrorResponse', errors: [{ __typename: 'AccessDenied', message: 'x' }] },
+    'a BaseError description': { __typename: 'ProfileDescription', description: { __typename: 'AccessDenied', message: 'x' } },
+  };
+  for (const [name, profileText] of Object.entries(missingTexts)) {
+    test(`${name} leaves out the profile text section and the fingerprint`, () => {
+      const request = toAlbumZipRequest(albumRaw({ profileText, captions: null }), DATE);
+
+      assert.ok(!report(request, 'profile.md').includes('## Profile text'));
+      assert.ok(report(request, 'profile.md').includes('## Albums'));
+      assert.ok(report(request, 'profile.html').includes('<h2>Albums</h2>'));
+      assert.equal(request.profileTextHash, undefined);
+    });
+  }
+
+  test('profileTextHash stays for the same text and changes with it', () => {
+    const hash = (fields) => toAlbumZipRequest(albumRaw({ profileText: profileTextResult(fields) }), DATE).profileTextHash;
+
+    assert.match(hash({ description: 'Hallo' }), /^[0-9a-f]{8}$/);
+    assert.equal(hash({ description: 'Hallo' }), hash({ description: 'Hallo' }));
+    assert.notEqual(hash({ description: 'Hallo' }), hash({ description: 'Hallo!' }));
+    assert.notEqual(hash({ motto: 'Hallo' }), hash({ description: 'Hallo' }));
+  });
+
+  test('an album titled profile.md does not overwrite the report', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'], albums: [{ title: 'profile.md', ids: ['2'] }] }), DATE);
+
+    assert.ok(!folders(request).includes('profile.md'));
+  });
+});
+
 describe('toAlbumZipRequest with ClubMail', () => {
   const CLUBMAIL = { origin: ORIGIN, messages: [attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2')] };
   const RESTRICTED_ONLY = { albums: [{ title: 'Lady', restricted: true, imageCount: 9 }] };
@@ -284,20 +370,20 @@ describe('toAlbumZipRequest with ClubMail', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE, { origin: ORIGIN, messages: [] });
 
     assert.deepEqual(folders(request), ['Fotos-von-uns', 'Aktuelles']);
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
   });
 
   test('a failed ClubMail fetch adds "ClubMail: unavailable" to skipped.txt and flags it', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE, { failed: true });
 
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n' }]);
     assert.equal(request.clubMailFailed, true);
   });
 
   test('a ClubMail failure reason goes into skipped.txt and is returned', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE, { failed: true, reason: 'HTTP 500' });
 
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n' }]);
     assert.equal(request.clubMailReason, 'HTTP 500');
   });
 
@@ -305,7 +391,7 @@ describe('toAlbumZipRequest with ClubMail', () => {
     for (const clubMail of [{ failed: true }, { failed: true, reason: '' }]) {
       const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, clubMail);
 
-      assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
+      assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
     }
   });
 
@@ -315,13 +401,13 @@ describe('toAlbumZipRequest with ClubMail', () => {
     assert.equal(request.clubMailFailed, true);
     assert.equal(request.clubMailReason, undefined);
     assert.deepEqual(folders(request), ['Fotos-von-uns']);
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
   });
 
   test('a failed ClubMail fetch alone writes skipped.txt', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { failed: true });
 
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
+    assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
   });
 
   test('only restricted albums with attachments give a ZIP with only ClubMail', () => {
@@ -361,13 +447,13 @@ describe('toAlbumZipRequest with ClubMail', () => {
   test('a conversation without attachments still gets its transcript', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN, messages: [textMessage('10')] });
 
-    assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
+    assert.deepEqual(withoutProfile(request.reports).map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
   });
 
   test('a failed ClubMail fetch writes no transcript', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { failed: true });
 
-    assert.deepEqual(request.reports.map(({ name }) => name), ['skipped.txt']);
+    assert.deepEqual(withoutProfile(request.reports).map(({ name }) => name), ['skipped.txt']);
   });
 
   test('puts the user\'s own attachments into ClubMail/Own/', () => {
@@ -528,6 +614,12 @@ describe('fetchProfileAlbums', () => {
   const HTTP_SERVER_ERROR = 500;
   const LIST = listResult({ main: ['101'], albums: [{ id: '201', title: 'Aktuelles', ids: ['102'] }] });
   const SOURCES = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: testUuid(2) }]);
+  const CAPTIONS = captionsResult([{ id: '101', title: 'Am See' }, { id: '102', hashtags: ['sommer'] }]);
+  const PROFILE_TEXT = profileTextResult({ description: 'Hallo' });
+  const EXPECTED = {
+    owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES, captions: CAPTIONS, profileText: PROFILE_TEXT,
+  };
+  const TOKEN_REQUEST = 'token';
   const originalFetch = globalThis.fetch;
   let fetchCalls;
   let responses;
@@ -535,6 +627,9 @@ describe('fetchProfileAlbums', () => {
   const jsonResponse = (body, status = HTTP_OK) => ({ ok: status === HTTP_OK, status, json: async () => body });
   const listBody = (list) => ({ data: { profileAlbum: { listByUserId: list } } });
   const sourcesBody = (itemList) => ({ data: { profileAlbum: { image: { source: { sourceByImageIdList: { itemList } } } } } });
+  const captionsBody = (image) => ({ data: { profileAlbum: { image } } });
+  const profileTextBody = (byUserId) => ({ data: { profileDescription: { byUserId } } });
+  const callNamed = (name) => fetchCalls.find((call) => (call.body?.operationName ?? TOKEN_REQUEST) === name);
 
   // Mirror the constants inside fetchProfileAlbums, which cannot export them.
   const TITLE_POLL_MS = 100;
@@ -569,14 +664,18 @@ describe('fetchProfileAlbums', () => {
 
   beforeEach(() => {
     fetchCalls = [];
-    responses = [
-      () => jsonResponse({ status_code: HTTP_OK, content: { access_token: TOKEN }, error: null }),
-      () => jsonResponse(listBody(LIST)),
-      () => jsonResponse(sourcesBody(SOURCES)),
-    ];
+    // Keyed by GraphQL operation; the album list, sources, captions and profile text requests overlap.
+    responses = {
+      [TOKEN_REQUEST]: () => jsonResponse({ status_code: HTTP_OK, content: { access_token: TOKEN }, error: null }),
+      getProfileAlbumList: () => jsonResponse(listBody(LIST)),
+      getProfileAlbumImageSources: () => jsonResponse(sourcesBody(SOURCES)),
+      getProfileAlbumImageCaptions: () => jsonResponse(captionsBody(CAPTIONS)),
+      getProfileDescriptionByUserId: () => jsonResponse(profileTextBody(PROFILE_TEXT)),
+    };
     globalThis.fetch = async (url, options = {}) => {
-      fetchCalls.push({ url, ...options, body: options.body && JSON.parse(options.body) });
-      return responses[fetchCalls.length - 1]();
+      const body = options.body && JSON.parse(options.body);
+      fetchCalls.push({ url, ...options, body });
+      return responses[body?.operationName ?? TOKEN_REQUEST]();
     };
     mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
     stubDocument();
@@ -588,15 +687,18 @@ describe('fetchProfileAlbums', () => {
     delete globalThis.document;
   });
 
-  test('fetches token, album list and image sources in order', async () => {
+  test('fetches the token, then album list, sources, captions and profile text', async () => {
     const { result } = await run(fetchProfileAlbums(USER_ID));
 
-    assert.deepEqual(result, { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
-    const [token, list, sources] = fetchCalls;
-    assert.equal(fetchCalls.length, 3);
+    assert.deepEqual(result, EXPECTED);
+    const [token, list, sources, captions, text] = [
+      TOKEN_REQUEST, 'getProfileAlbumList', 'getProfileAlbumImageSources', 'getProfileAlbumImageCaptions', 'getProfileDescriptionByUserId',
+    ].map(callNamed);
+    assert.equal(fetchCalls.length, 5);
+    assert.equal(fetchCalls[0], token);
     assert.equal(token.url, '/webauth/access_token');
     assert.equal(token.credentials, 'include');
-    for (const call of [list, sources]) {
+    for (const call of [list, sources, captions, text]) {
       assert.equal(call.url, 'https://apiv2.joyclub.com/graph/');
       assert.equal(call.method, 'POST');
       assert.deepEqual(call.headers, { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' });
@@ -605,14 +707,53 @@ describe('fetchProfileAlbums', () => {
     assert.deepEqual(list.body.variables, { id: USER_ID });
     assert.equal(sources.body.operationName, 'getProfileAlbumImageSources');
     assert.deepEqual(sources.body.variables, { idList: ['101', '102'] });
+    assert.deepEqual(captions.body.variables, { idList: ['101', '102'] });
+    assert.deepEqual(text.body.variables, { userId: Number(USER_ID) });
+  });
+
+  test('asks for the profile text while the album list loads', async () => {
+    let resolveList;
+    responses.getProfileAlbumList = () => new Promise((resolve) => { resolveList = () => resolve(jsonResponse(listBody(LIST))); });
+    const promise = fetchProfileAlbums(USER_ID);
+    await new Promise(setImmediate);
+
+    assert.ok(callNamed('getProfileDescriptionByUserId'));
+    resolveList();
+    assert.deepEqual((await run(promise)).result, EXPECTED);
   });
 
   test('asks for restrictionReason on restricted albums', async () => {
     await run(fetchProfileAlbums(USER_ID));
 
-    const [, list] = fetchCalls;
-    assert.match(list.body.query, /ProfileRestrictedRegularAlbum \{[^}]*restrictionReason/);
+    assert.match(callNamed('getProfileAlbumList').body.query, /ProfileRestrictedRegularAlbum \{[^}]*restrictionReason/);
   });
+
+  test('asks for the description of unrestricted albums and for photo hashtags', async () => {
+    await run(fetchProfileAlbums(USER_ID));
+
+    assert.match(callNamed('getProfileAlbumList').body.query, /ProfileUnrestrictedRegularAlbumInterface \{[^}]*description/);
+    assert.match(callNamed('getProfileAlbumImageCaptions').body.query, /ProfileAlbumImageItemResultSuccess \{ title description \}/);
+    assert.match(callNamed('getProfileAlbumImageCaptions').body.query, /ProfileAlbumImageHashtagsSuccessResult \{ hashtags \}/);
+  });
+
+  const optionalFailures = {
+    'HTTP 500': () => jsonResponse({}, HTTP_SERVER_ERROR),
+    'GraphQL errors array': () => jsonResponse({ errors: [{ message: 'denied' }], data: null }),
+    'fetch throws': () => { throw new TypeError('Failed to fetch'); },
+  };
+  for (const [name, response] of Object.entries(optionalFailures)) {
+    test(`captions ${name} → captions null, the rest stays`, async () => {
+      responses.getProfileAlbumImageCaptions = response;
+
+      assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { ...EXPECTED, captions: null });
+    });
+
+    test(`profile text ${name} → profileText null, the rest stays`, async () => {
+      responses.getProfileDescriptionByUserId = response;
+
+      assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { ...EXPECTED, profileText: null });
+    });
+  }
 
   test('every fetch gets an AbortSignal', async () => {
     await run(fetchProfileAlbums(USER_ID));
@@ -645,8 +786,8 @@ describe('fetchProfileAlbums', () => {
 
   test('waits for the title while the API calls run', async () => {
     const TOKEN_DELAY_MS = 1000;
-    const token = responses[0];
-    responses[0] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
+    const token = responses[TOKEN_REQUEST];
+    responses[TOKEN_REQUEST] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
@@ -657,8 +798,8 @@ describe('fetchProfileAlbums', () => {
   test('keeps waiting for the title past the wait limit while the API calls run', async () => {
     const TOKEN_DELAY_MS = TITLE_WAIT_MS + 1000;
     const CARD_APPEARS_MS = TITLE_WAIT_MS + 500;
-    const token = responses[0];
-    responses[0] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
+    const token = responses[TOKEN_REQUEST];
+    responses[TOKEN_REQUEST] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
     stubDocument({ cards: (now) => (now < CARD_APPEARS_MS ? [] : [REGULAR_CARD, MAIN_CARD]) });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
@@ -699,35 +840,38 @@ describe('fetchProfileAlbums', () => {
     assert.equal((await run(fetchProfileAlbums(USER_ID))).result.owner, '');
   });
 
-  test('skips the sources call when no album has ids', async () => {
+  test('skips the sources and captions calls when no album has ids', async () => {
     const empty = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
-    responses[1] = () => jsonResponse(listBody(empty));
+    responses.getProfileAlbumList = () => jsonResponse(listBody(empty));
 
     const { result } = await run(fetchProfileAlbums(USER_ID));
 
-    assert.equal(fetchCalls.length, 2);
+    assert.deepEqual(fetchCalls.map((call) => call.body?.operationName ?? TOKEN_REQUEST).sort(), [
+      'getProfileAlbumList', 'getProfileDescriptionByUserId', TOKEN_REQUEST,
+    ]);
     assert.deepEqual(result.sources, []);
+    assert.equal(result.captions, null);
     assert.deepEqual(result.list, empty);
   });
 
   const failures = {
-    'token HTTP 403': [0, () => jsonResponse({}, HTTP_FORBIDDEN)],
-    'token JSON without access_token': [0, () => jsonResponse({ status_code: HTTP_UNAUTHORIZED, content: null, error: 'x' })],
-    'list HTTP 500': [1, () => jsonResponse({}, HTTP_SERVER_ERROR)],
-    'GraphQL errors array': [1, () => jsonResponse({ errors: [{ message: 'denied' }], data: null })],
-    'sources fetch throws': [2, () => { throw new TypeError('Failed to fetch'); }],
-    'timeout abort': [2, () => { throw new DOMException('signal timed out', 'TimeoutError'); }],
+    'token HTTP 403': [TOKEN_REQUEST, () => jsonResponse({}, HTTP_FORBIDDEN)],
+    'token JSON without access_token': [TOKEN_REQUEST, () => jsonResponse({ status_code: HTTP_UNAUTHORIZED, content: null, error: 'x' })],
+    'list HTTP 500': ['getProfileAlbumList', () => jsonResponse({}, HTTP_SERVER_ERROR)],
+    'GraphQL errors array': ['getProfileAlbumList', () => jsonResponse({ errors: [{ message: 'denied' }], data: null })],
+    'sources fetch throws': ['getProfileAlbumImageSources', () => { throw new TypeError('Failed to fetch'); }],
+    'timeout abort': ['getProfileAlbumImageSources', () => { throw new DOMException('signal timed out', 'TimeoutError'); }],
   };
-  for (const [name, [index, response]] of Object.entries(failures)) {
+  for (const [name, [operation, response]] of Object.entries(failures)) {
     test(`${name} → { failed: true }`, async () => {
-      responses[index] = response;
+      responses[operation] = response;
 
       assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { failed: true });
     });
   }
 
   test('a missing token fails without waiting for the main album title', async () => {
-    responses[0] = failures['token JSON without access_token'][1];
+    responses[TOKEN_REQUEST] = failures['token JSON without access_token'][1];
     stubDocument({ cards: [] });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
@@ -739,6 +883,6 @@ describe('fetchProfileAlbums', () => {
   test('stays self-contained when serialised like executeScript does', async () => {
     const serialised = new Function(`return (${fetchProfileAlbums.toString()})`)();
 
-    assert.deepEqual((await run(serialised(USER_ID))).result, { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
+    assert.deepEqual((await run(serialised(USER_ID))).result, EXPECTED);
   });
 });

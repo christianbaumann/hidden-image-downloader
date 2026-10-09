@@ -46,3 +46,33 @@ export function albumRaw(overrides = {}) {
     ...overrides,
   };
 }
+
+// photos: [{ id, title?, description?, hashtags? } | { id, notFound: true }] → profileAlbum.image of the captions query
+export function captionsResult(photos) {
+  return {
+    byIdList: {
+      itemList: photos.map((photo) => ({
+        id: photo.id,
+        result: photo.notFound
+          ? { __typename: 'ProfileAlbumImageItemResultNotFound' }
+          : { __typename: 'ProfileAlbumImageItemResultSuccess', title: photo.title ?? '...', description: photo.description ?? '' },
+      })),
+    },
+    hashtag: {
+      byImageIdList: {
+        itemList: photos.filter((photo) => !photo.notFound).map((photo) => ({
+          id: photo.id,
+          result: { __typename: 'ProfileAlbumImageHashtagsSuccessResult', hashtags: photo.hashtags ?? [] },
+        })),
+      },
+    },
+  };
+}
+
+// fields: { motto?, description?, like?, dislike? } → profileDescription.byUserId; unset fields are '' like JoyClub's.
+export function profileTextResult(fields = {}) {
+  return {
+    __typename: 'ProfileDescription',
+    description: { __typename: 'Description', motto: '', description: '', like: '', dislike: '', ...fields },
+  };
+}

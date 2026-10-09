@@ -50,9 +50,16 @@ function imageFor(pathname) {
 
 // JoyClub's token endpoint, GraphQL API and ClubMail; graphStatus / clubMailStatus other than 200 fail those calls.
 // messages: one page of ClubMail messages. context.route also catches the fetches of the injected fetchers.
+// captions: profileAlbum.image of the captions query; profileText: profileDescription.byUserId (null: none).
 export async function routeJoyclubApi(context, {
-  list, sources, graphStatus = HTTP_OK, messages = [], clubMailStatus = HTTP_OK,
+  list, sources, captions = null, profileText = null, graphStatus = HTTP_OK, messages = [], clubMailStatus = HTTP_OK,
 }) {
+  const graphData = {
+    getProfileAlbumList: () => ({ profileAlbum: { listByUserId: list } }),
+    getProfileAlbumImageSources: () => ({ profileAlbum: { image: { source: { sourceByImageIdList: { itemList: sources } } } } }),
+    getProfileAlbumImageCaptions: () => ({ profileAlbum: { image: captions } }),
+    getProfileDescriptionByUserId: () => ({ profileDescription: { byUserId: profileText } }),
+  };
   await context.route(CLUBMAIL_LIST_URL, (route) => (clubMailStatus === HTTP_OK
     ? route.fulfill({ json: { content: { message_list: messages, page_up_parameter: null } } })
     : route.fulfill({ status: clubMailStatus, body: '' })));
@@ -74,10 +81,7 @@ export async function routeJoyclubApi(context, {
     if (graphStatus !== HTTP_OK) {
       return route.fulfill({ status: graphStatus, headers: GRAPH_CORS, body: '' });
     }
-    const data = request.postDataJSON().operationName === 'getProfileAlbumList'
-      ? { profileAlbum: { listByUserId: list } }
-      : { profileAlbum: { image: { source: { sourceByImageIdList: { itemList: sources } } } } };
-    return route.fulfill({ headers: GRAPH_CORS, json: { data } });
+    return route.fulfill({ headers: GRAPH_CORS, json: { data: graphData[request.postDataJSON().operationName]() } });
   });
 }
 

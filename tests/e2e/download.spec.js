@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
-import { listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import { captionsResult, listResult, profileTextResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
 import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
@@ -30,6 +30,8 @@ const CLUBMAIL_MESSAGES = [
   attachmentMessage('12', 'e2e-a2'),
   attachmentMessage('13', 'e2e-a3', { from: ME }),
 ];
+const PROFILE_TEXT = profileTextResult({ motto: 'Carpe diem', description: '[p]Hallo *wink*[/p][p]<script>alert(1)</script> [b]zwei[/b][/p]' });
+const CAPTIONS = captionsResult([{ id: '101', title: 'Am See', hashtags: ['sommer'] }, { id: '102', title: '...' }]);
 const RESTRICTED_ONLY_LIST = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
 const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
@@ -148,7 +150,9 @@ async function serveProfile(page, imageServer, {
   secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus,
 } = {}) {
   const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
-  await routeJoyclubApi(page.context(), { list, sources, graphStatus, messages, clubMailStatus });
+  await routeJoyclubApi(page.context(), {
+    list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, graphStatus, messages, clubMailStatus,
+  });
   await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 }
 
@@ -186,11 +190,35 @@ test('downloads every accessible album into its own folder', async ({ page, serv
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'profile.html',
+    'profile.md',
     'skipped.txt',
   ]);
   expect((await badgeState(serviceWorker)).text).toBe('');
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
   expect(await logDownloadIds(serviceWorker)).toEqual([]);
+});
+
+test('writes profile.md and profile.html whose links open the photos in the ZIP', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer);
+
+  const result = await clickAction(serviceWorker);
+
+  const entries = await zipEntries(serviceWorker, result);
+  const markdown = await zipText(serviceWorker, result, 'profile.md');
+  expect(markdown).toMatch(/^# TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 2 photos\n/);
+  expect(markdown).toContain('### Motto\n\nCarpe diem\n\n### About\n\nHallo \\*wink\\*\n\n\\<script\\>alert(1)\\</script\\> **zwei**\n');
+  expect(markdown).toContain('- [Am See](Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg)\n  #sommer\n');
+  const html = await zipText(serviceWorker, result, 'profile.html');
+  expect(html).toContain('<p>&lt;script&gt;alert(1)&lt;/script&gt; <strong>zwei</strong></p>');
+  expect(html).not.toContain('<script');
+  expect(html).not.toMatch(/(?:src|href)="(?:https?:)?\/\//);
+  const links = [
+    ...[...markdown.matchAll(/\]\(([^)]+)\)/g)].map(([, url]) => url),
+    ...[...html.matchAll(/(?:src|href)="([^"]+)"/g)].map(([, url]) => url),
+  ].map(decodeURIComponent);
+  expect(links).toHaveLength(6);
+  expect(links.filter((link) => !entries.includes(link))).toEqual([]);
 });
 
 function savedPhotos(serviceWorker) {
@@ -248,6 +276,8 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'ClubMail/conversation.md',
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'profile.html',
+    'profile.md',
     'skipped.txt',
   ]);
   const transcript = await zipText(serviceWorker, result, 'ClubMail/conversation.md');
@@ -289,6 +319,8 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
     'ClubMail/conversation.html',
     'ClubMail/conversation.md',
+    'profile.html',
+    'profile.md',
     'skipped.txt',
   ]);
 });
@@ -345,6 +377,8 @@ test('lists a missing album photo in missing.txt and log.txt and warns', async (
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
     'log.txt',
     'missing.txt',
+    'profile.html',
+    'profile.md',
     'skipped.txt',
   ]);
   const [missingUrl] = (await zipText(serviceWorker, result, 'missing.txt')).split('\n');

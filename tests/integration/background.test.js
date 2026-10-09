@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { IMAGE_BASE, albumRaw, listResult, testUuid } from '../fixtures/album-api.js';
+import { IMAGE_BASE, albumRaw, listResult, profileTextResult, testUuid } from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const TAB = { id: 7 };
@@ -602,7 +602,7 @@ describe('profile ZIP', () => {
       'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
       'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     ]);
-    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
+    assert.deepEqual(build.reports.filter(({ name }) => name === 'skipped.txt'), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
     assert.match(options.filename, /^TestOwner\.zip$/);
@@ -1398,7 +1398,7 @@ describe('incremental export', () => {
 
     const build = buildRequests()[0];
     assert.deepEqual(build.entries.map(({ name }) => name), ['Aktuelles/TestOwner_Aktuelles_01_00000002.jpg']);
-    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
+    assert.deepEqual(build.reports.filter(({ name }) => name === 'skipped.txt'), [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
   });
 
   test('a completed download adds its keys to the saved record', async () => {
@@ -1425,7 +1425,7 @@ describe('incremental export', () => {
 
     const build = buildRequests()[0];
     assert.deepEqual(build.entries, []);
-    assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'ClubMail/conversation.md', 'ClubMail/conversation.html']);
+    assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'ClubMail/conversation.md', 'ClubMail/conversation.html', 'profile.md', 'profile.html']);
     assert.equal(saved().lastMessageId, '12');
   });
 
@@ -1439,6 +1439,23 @@ describe('incremental export', () => {
 
     assert.equal(buildRequests()[0].entries.length, 2);
     assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: [] });
+  });
+
+  test('a changed profile text alone zips the profile files, and an unchanged one is nothing new', async () => {
+    extracted.fetchProfileAlbums = albumRaw({ profileText: profileTextResult({ description: 'Hallo' }) });
+    await clickAndFinish();
+    const firstHash = saved().profileTextHash;
+    assert.match(firstHash, /^[0-9a-f]{8}$/);
+    assert.deepEqual(await handleActionClick(PROFILE_TAB), { nothingNew: true });
+    calls = [];
+    extracted.fetchProfileAlbums = albumRaw({ profileText: profileTextResult({ description: 'Hallo, neu' }) });
+
+    await clickAndFinish();
+
+    const build = buildRequests()[0];
+    assert.deepEqual(build.entries, []);
+    assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'profile.md', 'profile.html']);
+    assert.notEqual(saved().profileTextHash, firstHash);
   });
 
   test('a conversation records the attachments and the newest message under the partner id', async () => {

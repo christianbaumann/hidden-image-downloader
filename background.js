@@ -269,7 +269,7 @@ async function rememberPending(downloadId, userId, record, log) {
 
 // The pending record is stored before anything else is awaited, so it is there when the download finishes.
 async function downloadZip(tabId, userId, {
-  zipName, entries, reports = [], clubMailFailed = false, clubMailReason, lastMessageId,
+  zipName, entries, reports = [], clubMailFailed = false, clubMailReason, lastMessageId, profileTextHash,
 }, log) {
   activeZipJobs++;
   let response;
@@ -285,7 +285,7 @@ async function downloadZip(tabId, userId, {
     throw error;
   }
   zipDownloadIds.add(downloadId);
-  await rememberPending(downloadId, userId, savedRecord(entries, response.missing, lastMessageId), log);
+  await rememberPending(downloadId, userId, savedRecord(entries, response.missing, lastMessageId, profileTextHash), log);
   const { url, added, missing } = response;
   log.add('download started');
   const warnings = [

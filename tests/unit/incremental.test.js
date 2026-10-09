@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { filterNewEntries, mergeRecord, pendingKey, savedKey, savedRecord } from '../../lib/incremental.js';
+import { filterNewEntries, fingerprint, mergeRecord, pendingKey, savedKey, savedRecord } from '../../lib/incremental.js';
 
 const PHOTO_1 = { url: 'https://img/1.jpg', name: 'Album/O_Album_01_00000001.jpg', photoKey: '00000001' };
 const PHOTO_3 = { url: 'https://img/3.jpg', name: 'Album/O_Album_03_00000003.jpg', photoKey: '00000003' };
@@ -43,6 +43,19 @@ describe('filterNewEntries', () => {
     assert.equal(nothingNew, false);
   });
 
+  test('a changed profile text without new files is something new', () => {
+    const request = { entries: [PHOTO_1], reports: [], profileTextHash: 'bbbbbbbb' };
+
+    assert.equal(filterNewEntries(request, { photos: ['00000001'], attachments: [], profileTextHash: 'aaaaaaaa' }).nothingNew, false);
+    assert.equal(filterNewEntries(request, { photos: ['00000001'], attachments: [], profileTextHash: 'bbbbbbbb' }).nothingNew, true);
+  });
+
+  test('a request without profile text hash is nothing new once its files are saved', () => {
+    const { nothingNew } = filterNewEntries({ entries: [PHOTO_1], reports: [] }, { photos: ['00000001'], attachments: [], profileTextHash: 'aaaaaaaa' });
+
+    assert.equal(nothingNew, true);
+  });
+
   test('a request without messages is nothing new once its files are saved', () => {
     const { nothingNew } = filterNewEntries({ entries: [PHOTO_1], reports: [] }, { photos: ['00000001'], attachments: [], lastMessageId: '9' });
 
@@ -67,6 +80,10 @@ describe('savedRecord', () => {
     assert.deepEqual(savedRecord([PHOTO_1, ATTACHMENT, KEYLESS], [], '12'), { photos: ['00000001'], attachments: ['a1'], lastMessageId: '12' });
   });
 
+  test('records the profile text hash', () => {
+    assert.deepEqual(savedRecord([PHOTO_1], [], undefined, 'aaaaaaaa'), { photos: ['00000001'], attachments: [], profileTextHash: 'aaaaaaaa' });
+  });
+
   test('leaves out missing entries', () => {
     assert.deepEqual(savedRecord([PHOTO_1, PHOTO_3, ATTACHMENT], [PHOTO_3.url, ATTACHMENT.url]), { photos: ['00000001'], attachments: [] });
   });
@@ -87,6 +104,25 @@ describe('mergeRecord', () => {
 
   test('keeps the saved message id when the record has none', () => {
     assert.equal(mergeRecord({ photos: [], attachments: [], lastMessageId: '5' }, { photos: [], attachments: [] }).lastMessageId, '5');
+  });
+
+  test('the record wins on the profile text hash, else the saved one stays', () => {
+    const saved = { photos: [], attachments: [], profileTextHash: 'aaaaaaaa' };
+
+    assert.equal(mergeRecord(saved, { photos: [], attachments: [], profileTextHash: 'bbbbbbbb' }).profileTextHash, 'bbbbbbbb');
+    assert.equal(mergeRecord(saved, { photos: [], attachments: [] }).profileTextHash, 'aaaaaaaa');
+  });
+});
+
+describe('fingerprint', () => {
+  test('is 8 hex chars, the same for the same text and different for a changed one', () => {
+    assert.match(fingerprint('Hallo'), /^[0-9a-f]{8}$/);
+    assert.equal(fingerprint('Hallo'), fingerprint('Hallo'));
+    assert.notEqual(fingerprint('Hallo'), fingerprint('Hallo!'));
+  });
+
+  test('matches FNV-1a for the empty string', () => {
+    assert.equal(fingerprint(''), '811c9dc5');
   });
 });
 
