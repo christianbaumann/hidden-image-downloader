@@ -33,14 +33,34 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 * [x] Profile ZIP: does the album API withhold or pixelate 18+ photos while locked (compare one profile locked vs. unlocked)
   * **Note:** Locked (live 2026-10-09, user 9032962 "Alhe123", 7 photos): `getProfileAlbumImageSources` answers `ProfileAlbumImageSourceSuccessResult` for all, but 6 have only `orig/image_180_pxl_<token>` as widest source, so the profile ZIP silently saves pixelated 180 px images. The toolbar ZIP needs the unlock check too. Unlocked (same profile, same session after the password): all 7 widest sources are `orig/image_1920_<token>` with new tokens (e.g. `image_180_pxl_GB2iW` → `image_1920_AWGiP`), no `_pxl_`.
 
+## Design (user decision 2026-10-09: password stored once, unlock without interaction)
+
+* The user enters their JoyClub password once on an extension options page. It is kept in `chrome.storage.local`, unencrypted in the Chrome profile; the options page says so. A "Forget password" button deletes it. It is never logged, never in a badge, never sent anywhere but the JoyClub prompt.
+* Lock check: `body[data-session-fsk18-status]` (`"0"` locked, `"1"` unlocked) of a JoyClub tab.
+* Unlock: open `/login/agecheck.html` in an inactive tab; on the `identity.joyclub.com/ui/fsk18` form, fill the stored password and submit (`executeScript`, needs the host permission `https://identity.joyclub.com/*`); success = the tab is back on `www.joyclub.de` with status `"1"` within a timeout; then close the tab.
+* One attempt per click, no retry: a wrong password or the 403 rate limit ends with a red badge ("18+ unlock failed") and a log, so the extension never locks the account. No stored password → the unlock tab opens active for manual entry (fallback).
+* Toolbar ZIP: check and unlock before the album API calls; the API serves full-size sources afterwards without a reload.
+* Context menu: a page loaded while locked holds pixelated URLs, and a reload loses the right-click position. So the extension unlocks proactively: when a JoyClub page reports status `"0"` and a password is stored, it unlocks once and reloads that tab. A menu click on a gated layer that still happens (no password stored) gets "unlock 18+ first" instead of saving a pixelated image.
+
+## Spike 2 (needs a locked session: log out/in, export `www.joyclub.de` and `identity.joyclub.com` cookies)
+
+* [ ] Markup of the password form on `identity.joyclub.com/ui/fsk18` (input, submit, error message for a wrong password), read without submitting
+* [ ] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
+
 ## Work
 
-* [ ] (after the spike) Detection, unlock tab flow and resume for the context menu and the toolbar click, with tests
-* [ ] README and `CLAUDE.md` describe the flow
+* [ ] Options page: store / forget the password (`chrome.storage.local`), with the risk note
+* [ ] `manifest.json`: `storage` permission, host permission `https://identity.joyclub.com/*`, `options_ui`
+* [ ] Lock check and unlock flow in `background.js` (pure parts in `lib/`), one attempt, timeout, red badge + log on failure; no password in logs
+* [ ] Toolbar ZIP unlocks before the album API; menu click on a gated layer without password → "unlock 18+ first"; proactive unlock + reload for locked JoyClub pages
+* [ ] Unit, integration and E2E tests (E2E: routed fake prompt page and fsk18 status)
+* [ ] README and `CLAUDE.md` describe the flow and the stored password
 
 ## Verification
 
-* [ ] Locked session: a click on a gated photo opens the prompt; after the password the full-size photo is saved
-* [ ] Unlocked session: no prompt, the photo is saved at once
-* [ ] Prompt closed without password: the click ends with a clear badge, nothing pixelated is saved silently
+* [ ] Locked session with a stored password: a toolbar ZIP of a profile with 18+ photos holds full-size photos, without any user interaction
+* [ ] Locked session with a stored password: opening a JoyClub page unlocks and reloads it once; the menu then saves full-size photos
+* [ ] Unlocked session: no unlock tab, the download starts at once
+* [ ] Wrong stored password: one attempt, red badge "18+ unlock failed", log without the password, nothing pixelated saved silently
+* [ ] No stored password: the unlock tab opens for manual entry
 * [ ] `npm test` and `npm run test:e2e` pass
