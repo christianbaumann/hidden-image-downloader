@@ -48,6 +48,8 @@ Right-clicking any image on a JoyClub page (profile cards, album grids, lightbox
 
 Feed (`/my_joy/feed/friends/`): saves the clicked image, but member cards and feed photos only offer crops/small sizes (`…/1-1/image_720_<token>.jpg`, `…/orig/image_180_<token>.jpg`; `…/orig/image_1920_<token>.jpg` exists) and the owner falls back to `unknown` (member cards carry it as `j-member-card[user-name]`). Photo detail pages: no URL found, not checked. Follow-up in task 11.
 
+Own album pages (found during the task 12 spike): the first `h2.profile-headline` is "Account" (membership box), so own photos were named `<Owner>_Account_<nn>_…`. Fixed: the album title is the last `h2.profile-headline` before the first `a.album-link`; `album.html` holds the extra headline, and the E2E test failed before the fix.
+
 ## Review (2026-10-09)
 
 Fixed: a right-click beside the photo (lightbox or modal backdrop) saved a grid card behind the backdrop, and a `body` background image could win. `content.js` now skips `body`/`html` and sends `backgroundColor`; `toHiddenImageCandidates` stops at a layer without image whose background alpha is ≥ `BACKDROP_MIN_ALPHA`.

@@ -43,6 +43,16 @@ function elementsUnder(point) {
   });
 }
 
+// The album title is the last headline before the album's photos; the own profile shows an "Account" headline earlier.
+function albumTitle(albumLinks) {
+  const headlines = [...document.querySelectorAll('h2.profile-headline')];
+  const [firstLink] = albumLinks;
+  const before = firstLink
+    ? headlines.filter((headline) => headline.compareDocumentPosition(firstLink) & window.Node.DOCUMENT_POSITION_FOLLOWING)
+    : headlines;
+  return textOf(before.at(-1));
+}
+
 function describeImageLayers() {
   if (!lastContextMenu) {
     return null;
@@ -51,7 +61,7 @@ function describeImageLayers() {
   return {
     pageUrl: location.href,
     owner: textOf(document.querySelector('h1.profile-base-info__user-name')),
-    album: textOf(document.querySelector('h2.profile-headline')),
+    album: albumTitle(albumLinks),
     albumLinks: albumLinks.map((link) => link.getAttribute('href')),
     layers: elementsUnder(lastContextMenu).map((element) => {
       const style = window.getComputedStyle(element);
