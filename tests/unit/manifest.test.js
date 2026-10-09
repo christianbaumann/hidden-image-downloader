@@ -41,3 +41,11 @@ test('manifest action has a title and no popup', () => {
   assert.equal(manifest.action.default_title, 'Download hidden image');
   assert.equal(manifest.action.default_popup, undefined);
 });
+
+test('manifest icons exist at 16, 48 and 128 px', () => {
+  assert.deepEqual(Object.keys(manifest.icons), ['16', '48', '128']);
+  for (const [size, path] of Object.entries(manifest.icons)) {
+    assert.equal(path, `icons/icon${size}.png`);
+    assert.ok(existsSync(resolve(root, path)));
+  }
+});
