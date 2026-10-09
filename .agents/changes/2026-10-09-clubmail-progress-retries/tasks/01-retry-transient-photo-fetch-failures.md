@@ -33,8 +33,10 @@ Photos that fail with a transient error (network, timeout, 429, 5xx) are fetched
 * [x] A photo failing with 500 on every attempt is fetched exactly 3 times and listed in `missing.txt`
   **Note:** Verified via `buildZip retries` › gives up after FETCH_RETRIES retries and lists the photo as missing
 * [x] The waits between attempts are 1000 ms and 2000 ms (asserted via the injected `delay`)
-  **Note:** Verified via `buildZip retries` › waits with exponential backoff between attempts
+  **Note:** Verified via `buildZip retries` › waits with exponential backoff between attempts (injected delay) and › waits on real timers when no delay is injected (mock timers, default `setTimeout` path)
 * [x] Existing `buildZip` behavior (order, reports, concurrency limit) is unchanged
   **Note:** Verified via the unchanged existing `buildZip` / `mapWithLimit` tests (failure cases now inject a no-op `delay`)
 * [x] `npm test` and `npm run test:e2e` pass
-  **Note:** Verified: `npm test` 232/232 pass, `npm run test:e2e` 7/7 pass
+  **Note:** Verified: `npm test` 233/233 pass, `npm run test:e2e` 7/7 pass
+
+Status: approved (2026-10-09). Reviewed by a subagent; no correctness issues found.

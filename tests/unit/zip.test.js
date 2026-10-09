@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { FETCH_CONCURRENCY, FETCH_RETRIES, buildZip, isRetryable, mapWithLimit } from '../../lib/zip.js';
+import { FETCH_CONCURRENCY, FETCH_RETRIES, RETRY_BASE_DELAY_MS, buildZip, isRetryable, mapWithLimit } from '../../lib/zip.js';
 import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
 
 const URL_A = 'https://img.example/a.jpg';
@@ -244,10 +244,12 @@ describe('buildZip retries', () => {
       [URL_B]: [{ ok: false, status: HTTP_NOT_FOUND }],
     });
     const { delay, waits } = recordDelay();
-    const { missing } = await buildZip(ENTRIES, { JSZip, fetch, delay });
+    const { blob, missing } = await buildZip(ENTRIES, { JSZip, fetch, delay });
     assert.deepEqual(calls.filter((url) => url === URL_B), [URL_B]);
     assert.deepEqual(waits, []);
     assert.deepEqual(missing, [URL_B]);
+    const zip = await readZip(blob);
+    assert.equal(await zip.file(MISSING_REPORT_NAME).async('string'), `${URL_B}\n`);
   });
 
   it('gives up after FETCH_RETRIES retries and lists the photo as missing', async () => {
@@ -275,5 +277,25 @@ describe('buildZip retries', () => {
     await buildZip(entries, { JSZip, fetch, delay: noDelay });
     assert.equal(warn.mock.callCount(), 1);
     assert.deepEqual(warn.mock.calls[0].arguments, [`photo fetch failed: HTTP ${HTTP_SERVER_ERROR}`]);
+  });
+
+  it('waits on real timers when no delay is injected', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    t.mock.method(console, 'warn', () => {});
+    const flush = () => new Promise(setImmediate);
+    const { fetch, calls } = stubFetchSequence({ [URL_A]: [{ ok: false, status: HTTP_SERVER_ERROR }] });
+    const result = buildZip(entries, { JSZip, fetch });
+    await flush();
+    assert.equal(calls.length, 1);
+    t.mock.timers.tick(RETRY_BASE_DELAY_MS);
+    await flush();
+    assert.equal(calls.length, 2);
+    t.mock.timers.tick(2 * RETRY_BASE_DELAY_MS - 1);
+    await flush();
+    assert.equal(calls.length, 2);
+    t.mock.timers.tick(1);
+    await flush();
+    assert.equal(calls.length, MAX_ATTEMPTS);
+    assert.deepEqual((await result).missing, [URL_A]);
   });
 });
