@@ -68,3 +68,19 @@ test('logDataUrl round-trips the text', () => {
 
   assert.equal(decodeURIComponent(url.slice(url.indexOf(',') + 1)), text);
 });
+
+test('a log continuing another one counts from the given start', () => {
+  const log = createLog(() => START_MS + STEP_MS, START_MS);
+  log.add('fetch');
+
+  assert.equal(log.startedAt, START_MS);
+  assert.deepEqual(log.lines.map(({ ms }) => ms), [STEP_MS]);
+});
+
+test('append adds lines recorded elsewhere unchanged', () => {
+  const log = createLog(clock());
+  log.add('first');
+  log.append([{ ms: 99, step: 'photo: missing', status: 404 }]);
+
+  assert.deepEqual(log.lines.map(({ ms, step }) => `${ms} ${step}`), [`${STEP_MS} first`, '99 photo: missing']);
+});
