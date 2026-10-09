@@ -50,6 +50,13 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
   * **Note:** Live 2026-10-09, locked session (`"0"`): the user typed the password, the script clicked `j-button.submit-btn` (`element.click()`). Steps: `/login/agecheck.html` → `identity.joyclub.com/ui/fsk18` → `/ui/fsk18/challenge/password`; after the click `/ui/redirect` → back on the opening page (`/my_joy/feed/friends/`) within ~1 s, status `"1"`. The scripted fill of the Vue field (value + `input` event) is not tested yet. The result was read by the user: Claude Code's auto mode classifier blocks Claude from this test's output ("Auto-Mode Bypass"), so building option C under auto mode is likely blocked too.
 * [ ] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
 
+## Decisions (2026-10-09)
+
+* Build option C (stored password, automatic unlock) in a Claude Code session without auto mode: auto mode's classifier blocks the password submit and its test output.
+* The `Bash(playwright-cli:*)` allow rule in `.claude/settings.local.json` stays until this task is done, then gets removed.
+* The live check needs fresh exports of the `www.joyclub.de` and `identity.joyclub.com` cookies from a locked session; the old exports are deleted.
+* Next task after this one: 06.
+
 ## Work
 
 * [ ] Options page: store / forget the password (`chrome.storage.local`), with the risk note
