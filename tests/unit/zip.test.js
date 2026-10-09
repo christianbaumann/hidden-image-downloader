@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { FETCH_CONCURRENCY, buildZip, mapWithLimit } from '../../lib/zip.js';
+import { FETCH_CONCURRENCY, FETCH_RETRIES, buildZip, isRetryable, mapWithLimit } from '../../lib/zip.js';
 import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
 
 const URL_A = 'https://img.example/a.jpg';
@@ -9,6 +9,11 @@ const URL_B = 'https://img.example/b.jpg';
 const BYTES_A = [1, 2, 3];
 const BYTES_B = [4, 5];
 const HTTP_NOT_FOUND = 404;
+const HTTP_FORBIDDEN = 403;
+const HTTP_TOO_MANY_REQUESTS = 429;
+const HTTP_SERVER_ERROR = 500;
+const HTTP_UNAVAILABLE = 503;
+const MAX_ATTEMPTS = FETCH_RETRIES + 1;
 
 const ENTRIES = [
   { url: URL_A, name: 'Owner_01_a.jpg' },
@@ -31,6 +36,26 @@ function stubFetch(responses) {
   };
   return { fetch, calls };
 }
+
+// Answers each URL from its queue, one item per attempt; the last item repeats.
+function stubFetchSequence(sequences) {
+  const calls = [];
+  const fetch = async (url) => {
+    calls.push(url);
+    const queue = sequences[url];
+    const response = queue.length > 1 ? queue.shift() : queue[0];
+    if (response instanceof Error) throw response;
+    return response;
+  };
+  return { fetch, calls };
+}
+
+function recordDelay() {
+  const waits = [];
+  return { delay: async (ms) => { waits.push(ms); }, waits };
+}
+
+const noDelay = async () => {};
 
 async function readZip(blob) {
   return JSZip.loadAsync(await blob.arrayBuffer());
@@ -92,7 +117,7 @@ describe('buildZip', () => {
   ]) {
     it(`lists the URL in missing.txt after ${label}`, async () => {
       const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: failure });
-      const { blob, added, missing } = await buildZip(ENTRIES, { JSZip, fetch });
+      const { blob, added, missing } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
       assert.equal(added, 1);
       assert.deepEqual(missing, [URL_B]);
       const zip = await readZip(blob);
@@ -103,7 +128,7 @@ describe('buildZip', () => {
 
   it('returns no blob when every fetch fails', async () => {
     const { fetch } = stubFetch({ [URL_A]: new Error('x'), [URL_B]: { ok: false, status: HTTP_NOT_FOUND } });
-    const { blob, added, missing } = await buildZip(ENTRIES, { JSZip, fetch });
+    const { blob, added, missing } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
     assert.equal(blob, null);
     assert.equal(added, 0);
     assert.deepEqual(missing, [URL_A, URL_B]);
@@ -157,7 +182,7 @@ describe('buildZip', () => {
 
   it('writes reports and missing.txt together', async () => {
     const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new Error('x') });
-    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });
+    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, delay: noDelay });
     const zip = await readZip(blob);
     assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', MISSING_REPORT_NAME, SKIPPED_REPORT_NAME]);
   });
@@ -172,8 +197,83 @@ describe('buildZip', () => {
 
   it('writes no reports when every fetch fails', async () => {
     const { fetch } = stubFetch({ [URL_A]: new Error('x'), [URL_B]: new Error('y') });
-    const { blob, added } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });
+    const { blob, added } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, delay: noDelay });
     assert.equal(blob, null);
     assert.equal(added, 0);
+  });
+});
+
+describe('isRetryable', () => {
+  for (const status of [HTTP_TOO_MANY_REQUESTS, HTTP_SERVER_ERROR, HTTP_UNAVAILABLE]) {
+    it(`retries HTTP ${status}`, () => assert.equal(isRetryable(status), true));
+  }
+
+  for (const status of [HTTP_FORBIDDEN, HTTP_NOT_FOUND]) {
+    it(`does not retry HTTP ${status}`, () => assert.equal(isRetryable(status), false));
+  }
+
+  it('retries a network error', () => assert.equal(isRetryable(new TypeError('Failed to fetch')), true));
+
+  it('retries a timeout', () => assert.equal(isRetryable(new DOMException('timed out', 'TimeoutError')), true));
+});
+
+describe('buildZip retries', () => {
+  const entries = [{ url: URL_A, name: 'Owner_01_a.jpg' }];
+
+  it('keeps a photo that fails once with 503', async () => {
+    const { fetch, calls } = stubFetchSequence({ [URL_A]: [{ ok: false, status: HTTP_UNAVAILABLE }, okResponse(BYTES_A)] });
+    const { blob, added, missing } = await buildZip(entries, { JSZip, fetch, delay: noDelay });
+    assert.equal(calls.length, 2);
+    assert.equal(added, 1);
+    assert.deepEqual(missing, []);
+    const zip = await readZip(blob);
+    assert.deepEqual(Object.keys(zip.files), ['Owner_01_a.jpg']);
+  });
+
+  it('keeps a photo whose fetch throws twice', async () => {
+    const { fetch, calls } = stubFetchSequence({ [URL_A]: [new Error('x'), new Error('y'), okResponse(BYTES_A)] });
+    const { added, missing } = await buildZip(entries, { JSZip, fetch, delay: noDelay });
+    assert.equal(calls.length, MAX_ATTEMPTS);
+    assert.equal(added, 1);
+    assert.deepEqual(missing, []);
+  });
+
+  it('fetches a 404 photo once and lists it as missing', async () => {
+    const { fetch, calls } = stubFetchSequence({
+      [URL_A]: [okResponse(BYTES_A)],
+      [URL_B]: [{ ok: false, status: HTTP_NOT_FOUND }],
+    });
+    const { delay, waits } = recordDelay();
+    const { missing } = await buildZip(ENTRIES, { JSZip, fetch, delay });
+    assert.deepEqual(calls.filter((url) => url === URL_B), [URL_B]);
+    assert.deepEqual(waits, []);
+    assert.deepEqual(missing, [URL_B]);
+  });
+
+  it('gives up after FETCH_RETRIES retries and lists the photo as missing', async () => {
+    const { fetch, calls } = stubFetchSequence({
+      [URL_A]: [okResponse(BYTES_A)],
+      [URL_B]: [{ ok: false, status: HTTP_SERVER_ERROR }],
+    });
+    const { blob, missing } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
+    assert.equal(calls.filter((url) => url === URL_B).length, MAX_ATTEMPTS);
+    assert.deepEqual(missing, [URL_B]);
+    const zip = await readZip(blob);
+    assert.equal(await zip.file(MISSING_REPORT_NAME).async('string'), `${URL_B}\n`);
+  });
+
+  it('waits with exponential backoff between attempts', async () => {
+    const { fetch } = stubFetchSequence({ [URL_A]: [{ ok: false, status: HTTP_SERVER_ERROR }] });
+    const { delay, waits } = recordDelay();
+    await buildZip(entries, { JSZip, fetch, delay });
+    assert.deepEqual(waits, [1000, 2000]);
+  });
+
+  it('warns once per photo, only after the final attempt', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    const { fetch } = stubFetchSequence({ [URL_A]: [{ ok: false, status: HTTP_SERVER_ERROR }] });
+    await buildZip(entries, { JSZip, fetch, delay: noDelay });
+    assert.equal(warn.mock.callCount(), 1);
+    assert.deepEqual(warn.mock.calls[0].arguments, [`photo fetch failed: HTTP ${HTTP_SERVER_ERROR}`]);
   });
 });
