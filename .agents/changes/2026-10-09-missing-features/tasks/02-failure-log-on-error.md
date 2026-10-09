@@ -30,7 +30,7 @@ A click that ends with a red badge or an unexpected exception also downloads `hi
 * [x] A successful lightbox or profile click requests no log download **Note:** Verified via integration tests `a clean lightbox/profile click downloads no log` and E2E lightbox + profile ZIP tests (`logDownloadIds` empty).
 * [x] The log never contains `access_token`, `Bearer`, cookie values, message content or URL query strings **Note:** Verified via unit tests (`stripQuery`, `renderLog` writes only given fields) and integration tests (tab URL query, probe URL query, ClubMail message text absent). Fetchers never return tokens; log lines are built only from step names, status, fixed reasons and stripped URLs.
 * [x] `npm test` and `npm run test:e2e` pass **Note:** `npm test` 451 pass; `npm run test:e2e` 14 pass.
-* [ ] (manual testing required) The log file on disk is named `hidden-image-downloader-log.txt`: Playwright saves downloads under GUID names, so E2E sees only the requested name. Integration test `the log download gets its name through onDeterminingFilename` covers the request.
+* [x] The log file on disk is named `hidden-image-downloader-log.txt`. **Note:** Verified manually by the user on 2026-10-09 (toolbar click on a non-JoyClub page, red badge, file saved under that name). Integration test `the log download gets its name through onDeterminingFilename` covers the request.
 
 ## Notes
 
