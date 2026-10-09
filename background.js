@@ -1,5 +1,6 @@
 import { clubMailConversationIds, fetchClubMailImages, withReason } from './lib/clubmail.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
+import { LOG_FILENAME, createLog, logDataUrl, renderLog } from './lib/log.js';
 import {
   NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
 } from './lib/profile.js';
@@ -24,6 +25,7 @@ const WARNING_SEPARATOR = '; ';
 const INJECTION_FAILED_REASON = 'extension could not run on the page';
 const CLUBMAIL_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
 const ZIP_EXTENSION = '.zip';
+const ZIP_WITHOUT_URL_REASON = 'no ZIP in the answer';
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -124,7 +126,7 @@ async function extractAllWithProgress(tabId, fetchers) {
 }
 
 // HEAD every candidate but the last; the first ok one wins, the last is the unprobed fallback.
-async function firstAvailable(candidates) {
+async function firstAvailable(candidates, log) {
   for (const candidate of candidates.slice(0, -1)) {
     try {
       const response = await fetch(candidate.url, {
@@ -132,10 +134,12 @@ async function firstAvailable(candidates) {
         credentials: 'include',
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
+      log.add('probe', { status: response.status, url: candidate.url });
       if (response.ok) {
         return candidate;
       }
-    } catch {
+    } catch (error) {
+      log.add('probe', { reason: error.name, url: candidate.url });
       console.warn('jpg probe failed');
     }
   }
@@ -197,7 +201,7 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-async function buildZipOffscreen(tabId, root, entries, reports) {
+async function buildZipOffscreen(tabId, root, entries, reports, log) {
   const jobId = nextZipJobId++;
   zipJobTabs.set(jobId, tabId);
   let response;
@@ -206,24 +210,27 @@ async function buildZipOffscreen(tabId, root, entries, reports) {
     response = await chrome.runtime.sendMessage({
       target: 'offscreen', action: 'build-zip', jobId, root, entries, reports,
     });
-  } catch {
+  } catch (error) {
+    log.add('zip: build failed', { reason: error.name });
     throw new DownloadFailedError();
   } finally {
     zipJobTabs.delete(jobId);
   }
   if (!response?.url) {
+    log.add('zip: build failed', { reason: ZIP_WITHOUT_URL_REASON });
     throw new DownloadFailedError();
   }
   return response;
 }
 
-async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false, clubMailReason }) {
+async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false, clubMailReason }, log) {
   activeZipJobs++;
   let response;
   let downloadId;
   try {
     const root = zipName.slice(0, -ZIP_EXTENSION.length);
-    response = await buildZipOffscreen(tabId, root, entries, reports);
+    response = await buildZipOffscreen(tabId, root, entries, reports, log);
+    log.add(`zip: ${response.added} added, ${response.missing.length} missing`);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {
     activeZipJobs--;
@@ -232,6 +239,7 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
   }
   zipDownloadIds.add(downloadId);
   const { url, added, missing } = response;
+  log.add('download started');
   const warnings = [
     ...(missing.length > 0 ? [`${missing.length} of ${entries.length} photos missing`] : []),
     ...(clubMailFailed ? [withReason(CLUBMAIL_UNAVAILABLE, clubMailReason)] : []),
@@ -275,37 +283,70 @@ function suggestOwnFilename(item, suggest) {
   suggest({ filename, conflictAction: CONFLICT_ACTION });
 }
 
+function logAlbums(log, albums) {
+  log.add(albums?.failed ? 'albums: failed' : `albums: ${albums?.sources?.length ?? 0} photo sources`);
+}
+
+function logClubMail(log, clubMail) {
+  if (clubMail?.failed || !clubMail?.messages) {
+    log.add('clubmail: failed', { reason: clubMail?.reason });
+    return;
+  }
+  log.add(`clubmail: ${clubMail.messages.length} messages`);
+}
+
+// A failing log download must not hide the error it describes.
+async function downloadLog(log) {
+  try {
+    await startDownload(logDataUrl(renderLog(log)), LOG_FILENAME);
+  } catch {
+    console.warn('log download failed');
+  }
+}
+
 export async function handleActionClick(tab) {
   await clearBadge(tab.id);
+  const log = createLog();
   try {
     const date = new Date();
     const conversationIds = clubMailConversationIds(tab.url);
     if (conversationIds) {
+      log.add('path: conversation', { url: tab.url });
       const [clubMail] = await extractAllWithProgress(tab.id, [[fetchClubMailImages, [conversationIds], CLUBMAIL_FAILED]]);
-      return await downloadZip(tab.id, toClubMailZipRequest(clubMail, date));
+      logClubMail(log, clubMail);
+      return await downloadZip(tab.id, toClubMailZipRequest(clubMail, date), log);
     }
     const userId = profileUserId(tab.url);
     if (userId) {
+      log.add('path: profile', { url: tab.url });
       const [albums, clubMail] = await extractAllWithProgress(tab.id, [
         [fetchProfileAlbums, [userId]],
         [fetchClubMailImages, [[userId]], CLUBMAIL_FAILED],
       ]);
-      return await downloadZip(tab.id, toAlbumZipRequest(albums, date, clubMail));
+      logAlbums(log, albums);
+      logClubMail(log, clubMail);
+      return await downloadZip(tab.id, toAlbumZipRequest(albums, date, clubMail), log);
     }
+    log.add('path: lightbox', { url: tab.url });
     const raw = await extractFromTab(tab.id, extractLightboxData);
     if (!raw) {
       throw new NothingToDownloadError();
     }
-    const { url, filename } = await firstAvailable(toDownloadCandidates(raw, date));
+    const { url, filename } = await firstAvailable(toDownloadCandidates(raw, date), log);
     const downloadId = await startDownload(url, filename);
+    log.add('download started', { url });
     return { url, filename, downloadId };
   } catch (error) {
     const reason = ERROR_REASONS[error.name];
+    // Unexpected errors log only their name: their message may hold page data.
+    log.add(`error: ${error.name}`, { reason: reason && withReason(reason, error.reason) });
     if (!reason) {
       await clearBadge(tab.id);
+      await downloadLog(log);
       throw error;
     }
     await showError(tab.id, withReason(reason, error.reason));
+    await downloadLog(log);
     return null;
   }
 }

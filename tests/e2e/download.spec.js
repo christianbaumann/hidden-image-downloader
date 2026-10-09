@@ -113,6 +113,19 @@ async function zipText(serviceWorker, result, name) {
   return (await loadZip(serviceWorker, result.downloadId)).file(zipRoot(result) + name).async('string');
 }
 
+// Downloads of the failure log: the only data: URLs the extension downloads.
+function logDownloadIds(serviceWorker) {
+  return serviceWorker.evaluate(async () =>
+    (await chrome.downloads.search({ urlRegex: '^data:text/plain' })).map(({ id }) => id));
+}
+
+async function logFileText(serviceWorker) {
+  await expect.poll(() => logDownloadIds(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toHaveLength(1);
+  const [id] = await logDownloadIds(serviceWorker);
+  await expect.poll(() => downloadState(serviceWorker, id), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe('complete');
+  return readFile((await downloadItem(serviceWorker, id)).filename, 'utf8');
+}
+
 function badgeColor(serviceWorker) {
   return serviceWorker.evaluate(async () => {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -141,6 +154,7 @@ test('downloads the lightbox image as jpg with owner and title in the filename',
   expect(result.url).toBe(`${imageServer.base}/image.jpg`);
   await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');
+  expect(await logDownloadIds(serviceWorker)).toEqual([]);
 });
 
 test('falls back to the webp when the server has no jpg', async ({ page, serviceWorker, imageServer }) => {
@@ -169,6 +183,7 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   ]);
   expect((await badgeState(serviceWorker)).text).toBe('');
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
+  expect(await logDownloadIds(serviceWorker)).toEqual([]);
 });
 
 test('shows the ZIP progress on the badge before clearing it', async ({ page, serviceWorker, imageServer }) => {
@@ -335,4 +350,15 @@ test('flags the icon on non-JoyClub pages', async ({ page, serviceWorker }) => {
   const badge = await badgeState(serviceWorker);
   expect(badge.text).toBe('!');
   expect(badge.title).toContain('JoyClub pages only');
+});
+
+test('saves a failure log that names the reason on non-JoyClub pages', async ({ page, serviceWorker }) => {
+  await serve(page, OTHER_SITE_URL, await fixture('no-lightbox.html'));
+
+  await clickAction(serviceWorker);
+
+  const text = await logFileText(serviceWorker);
+  expect(text).toMatch(/^Hidden Image Downloader log\n/);
+  expect(text).toContain('path: lightbox');
+  expect(text).toContain('error: UnsupportedPageError  reason=works on JoyClub pages only');
 });

@@ -115,6 +115,10 @@ globalThis.fetch = async (url, options) => {
 const { handleActionClick } = await import('../../background.js');
 
 const callsNamed = (name) => calls.filter(([callName]) => callName === name).map(([, details]) => details);
+const LOG_FILENAME = 'hidden-image-downloader-log.txt';
+const logDownloads = () => callsNamed('download').filter(({ filename }) => filename === LOG_FILENAME);
+const contentDownloads = () => callsNamed('download').filter(({ filename }) => filename !== LOG_FILENAME);
+const logText = () => decodeURIComponent(logDownloads()[0].url.split(',').slice(1).join(','));
 const lastTitle = () => callsNamed('setTitle').at(-1).title;
 const lastBadgeText = () => callsNamed('setBadgeText').at(-1).text;
 const injectedFunctions = () => callsNamed('executeScript').map(({ func }) => func.name);
@@ -287,7 +291,7 @@ describe('handleActionClick', () => {
     assert.equal(result, null);
     assert.equal(lastBadgeText(), '!');
     assert.match(lastTitle(), /^Hidden Image Downloader: .*JoyClub pages only/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('neither lightbox nor profile photos shows "no lightbox image or profile photos found"', async () => {
@@ -296,7 +300,7 @@ describe('handleActionClick', () => {
     assert.equal(await handleActionClick(TAB), null);
     assert.equal(lastBadgeText(), '!');
     assert.match(lastTitle(), /no lightbox image or profile photos found/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
     assert.equal(callsNamed('createDocument').length, 0);
   });
 
@@ -305,7 +309,7 @@ describe('handleActionClick', () => {
 
     assert.equal(await handleActionClick(TAB), null);
     assert.match(lastTitle(), /image address not found/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('download rejection shows "download failed"', async () => {
@@ -578,7 +582,7 @@ describe('profile ZIP', () => {
     assert.equal(lastBadgeText(), '!');
     assert.equal(lastTitle(), 'Hidden Image Downloader: album list unavailable');
     assert.equal(callsNamed('createDocument').length, 0);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('a failing injection on a profile URL shows the JoyClub hint', async () => {
@@ -640,7 +644,7 @@ describe('profile ZIP', () => {
 
     assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
     assert.equal(callsNamed('closeDocument').length, 1);
   });
 
@@ -657,7 +661,7 @@ describe('profile ZIP', () => {
 
     assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('a double click creates the document once and downloads both ZIPs', async () => {
@@ -694,7 +698,7 @@ describe('profile ZIP', () => {
 
     assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('an offscreen document that never answers the ping shows "download failed"', async () => {
@@ -704,7 +708,7 @@ describe('profile ZIP', () => {
     assert.equal(await handleActionClick(PROFILE_TAB), null);
     assert.match(lastTitle(), /download failed/);
     assert.equal(callsNamed('sendMessage').length, OFFSCREEN_READY_LIMIT);
-    assert.equal(callsNamed('download').length, 0);
+    assert.equal(contentDownloads().length, 0);
   });
 
   test('a rejected ZIP download shows "download failed", closes the document and forgets the filename', async () => {
@@ -1014,5 +1018,161 @@ describe('ZIP progress badge', () => {
     await handleActionClick(PROFILE_TAB);
 
     assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('1/2'), false);
+  });
+});
+
+describe('failure log', () => {
+  afterEach(async () => {
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await new Promise(setImmediate);
+  });
+
+  test('a red badge downloads the log, which names the path and the reason', async () => {
+    executeScript = async () => {
+      throw new Error('Cannot access contents of the page');
+    };
+
+    await handleActionClick({ id: 7, url: 'https://example.com/page?session=secret' });
+
+    const [options] = logDownloads();
+    assert.equal(options.filename, LOG_FILENAME);
+    assert.match(options.url, /^data:text\/plain;charset=utf-8,/);
+    assert.match(logText(), /path: lightbox {2}url=https:\/\/example\.com\/page\n/);
+    assert.match(logText(), /error: UnsupportedPageError {2}reason=works on JoyClub pages only/);
+    assert.doesNotMatch(logText(), /secret/);
+  });
+
+  test('the log download gets its name through onDeterminingFilename', async () => {
+    let suggestion;
+    executeScript = async () => [{ result: null }];
+    download = async ({ url }) => {
+      suggestion = determineFilename({ url, byExtensionId: OWN_EXTENSION_ID });
+      return DOWNLOAD_ID;
+    };
+
+    await handleActionClick(TAB);
+
+    assert.deepEqual(suggestion, { filename: LOG_FILENAME, conflictAction: 'uniquify' });
+  });
+
+  test('logs probe status and URLs without query', async () => {
+    fetchImpl = async () => ({ ok: false, status: HTTP_NOT_FOUND });
+    download = async ({ filename }) => {
+      if (filename !== LOG_FILENAME) {
+        throw new Error('Invalid filename');
+      }
+      return DOWNLOAD_ID;
+    };
+
+    await handleActionClick(TAB);
+
+    assert.match(logText(), /probe {2}status=404 {2}url=https:\/\/cdn\.joyclub\.de\/img\/abc_1920\.jpg\n/);
+    assert.match(logText(), /error: DownloadFailedError {2}reason=download failed/);
+    assert.doesNotMatch(logText(), /\?c=1/);
+  });
+
+  test('a ClubMail failure logs its reason, but no message text', async () => {
+    extracted.fetchClubMailImages = {
+      origin: ORIGIN, partnerId: PARTNER.id, messages: [textMessage('10', { content: 'very private words' })],
+    };
+    sendMessage = async () => {
+      throw new Error('Could not establish connection.');
+    };
+
+    await handleActionClick(CONVERSATION_TAB);
+
+    assert.match(logText(), /clubmail: 1 messages/);
+    assert.match(logText(), /error: DownloadFailedError/);
+    assert.doesNotMatch(logText(), /private/);
+  });
+
+  test('a failed album fetch is logged', async () => {
+    extracted.fetchProfileAlbums = { failed: true };
+    extracted.fetchClubMailImages = { failed: true, reason: 'timeout' };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.match(logText(), /path: profile/);
+    assert.match(logText(), /albums: failed/);
+    assert.match(logText(), /clubmail: failed {2}reason=timeout/);
+    assert.match(logText(), /error: AlbumApiError {2}reason=album list unavailable/);
+  });
+
+  test('an unexpected exception downloads the log and still propagates', async () => {
+    extracted.fetchProfileAlbums = albumRaw({ list: { __typename: 'ProfileAlbumListByUserIdSuccess', regularAlbumResultList: 1 } });
+
+    await assert.rejects(handleActionClick(PROFILE_TAB), TypeError);
+    assert.match(logText(), /error: TypeError/);
+  });
+
+  test('a red ClubMail failure on a conversation logs its reason', async () => {
+    extracted.fetchClubMailImages = { failed: true, reason: 'not your conversation' };
+
+    await handleActionClick(CONVERSATION_TAB);
+
+    assert.match(logText(), /path: conversation/);
+    assert.match(logText(), /clubmail: failed {2}reason=not your conversation/);
+    assert.match(logText(), /error: ClubMailApiError {2}reason=ClubMail unavailable \(not your conversation\)/);
+  });
+
+  test('a failed ZIP build is logged before the error', async () => {
+    zipResponse = { error: 'no photo loaded' };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.match(logText(), /zip: build failed {2}reason=no ZIP in the answer\n.*error: DownloadFailedError/);
+  });
+
+  test('a failed ZIP download is logged after the build', async () => {
+    download = async ({ filename }) => {
+      if (filename !== LOG_FILENAME) {
+        throw new Error('Invalid filename');
+      }
+      return DOWNLOAD_ID;
+    };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.match(logText(), /zip: 2 added, 0 missing\n.*error: DownloadFailedError/);
+  });
+
+  test('an unexpected exception logs only its name, not its message', async () => {
+    extracted.fetchProfileAlbums = albumRaw({ list: { __typename: 'ProfileAlbumListByUserIdSuccess', regularAlbumResultList: 1 } });
+
+    await assert.rejects(handleActionClick(PROFILE_TAB), TypeError);
+    assert.doesNotMatch(logText(), /error: TypeError {2}reason/);
+  });
+
+  test('an unexpected exception still propagates when the log download fails', async () => {
+    extracted.fetchProfileAlbums = albumRaw({ list: { __typename: 'ProfileAlbumListByUserIdSuccess', regularAlbumResultList: 1 } });
+    download = async () => {
+      throw new Error('Invalid filename');
+    };
+
+    await assert.rejects(handleActionClick(PROFILE_TAB), TypeError);
+  });
+
+  test('a failing log download keeps the red badge and its reason', async () => {
+    executeScript = async () => [{ result: null }];
+    download = async () => {
+      throw new Error('Invalid filename');
+    };
+
+    assert.equal(await handleActionClick(TAB), null);
+    assert.match(lastTitle(), /no lightbox image or profile photos found/);
+    assert.equal(callsNamed('setBadgeBackgroundColor').at(-1).color, '#d00000');
+  });
+
+  test('a clean lightbox click downloads no log', async () => {
+    await handleActionClick(TAB);
+
+    assert.equal(logDownloads().length, 0);
+  });
+
+  test('a clean profile click downloads no log', async () => {
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(contentDownloads().length, 1);
+    assert.equal(logDownloads().length, 0);
   });
 });
