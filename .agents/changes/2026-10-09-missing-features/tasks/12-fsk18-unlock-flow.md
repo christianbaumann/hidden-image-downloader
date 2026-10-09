@@ -44,7 +44,9 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 
 ## Spike 2 (needs a locked session: log out/in, export `www.joyclub.de` and `identity.joyclub.com` cookies)
 
-* [ ] Markup of the password form on `identity.joyclub.com/ui/fsk18` (input, submit, error message for a wrong password), read without submitting
+* [-] Markup of the password form on `identity.joyclub.com/ui/fsk18` (input, submit, error message for a wrong password), read without submitting
+  * **Note:** Live 2026-10-09 (locked session): `/login/agecheck.html` ends on `identity.joyclub.com/ui/fsk18/challenge/password`, text "Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein". One `form` (method get, no action, Vue/Vuetify): hidden `input[name=username][autocomplete=username]`, password `input.v-field__input[type=password][autocomplete=current-password]` (generated id, no name), `j-button.submit-btn` ("Freischalten"), `j-button.cancel-btn` ("Abbrechen"). Error message for a wrong password: not seen (would cost an attempt against the rate limit).
+  * Scripted submit not tested: Claude Code's auto mode classifier denied the test run (script clicks "Freischalten" after the user typed the password).
 * [ ] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
 
 ## Work
