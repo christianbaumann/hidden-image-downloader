@@ -2,13 +2,20 @@
 <html lang="de">
 <head>
   <meta charset="utf-8"><title>Lightbox fixture</title>
-  <style>.secure_image { display: block; width: 200px; height: 200px; }</style>
+  <style>
+    .lightbox_image_container { position: relative; width: 200px; height: 200px; }
+    .secure_image { display: block; width: 200px; height: 200px; pointer-events: none; }
+    .image_security_overlay { position: absolute; inset: 0; width: 200px; height: 200px; }
+  </style>
 </head>
 <body class="lightbox_opened">
   <div class="lightbox">
     <div class="lightbox_slide slide_active">
-      <img class="secure_image" src="/spacer.gif" alt="" data-photo="1001"
-           style="background-image: url(&quot;__IMAGE_URL__&quot;); background-size: contain;">
+      <div class="lightbox_image_container">
+        <img class="secure_image" src="/spacer.gif" alt="" data-photo="1001"
+             style="background-image: url(&quot;__IMAGE_URL__&quot;); background-size: contain;">
+        <img class="image_security_overlay" src="/spacer.gif" alt="">
+      </div>
       <a class="lb_owner_name" href="/profile/1.html">TestOwner</a>
       <span class="lb_img_title">Rück Ansicht</span>
     </div>

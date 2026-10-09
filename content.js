@@ -22,6 +22,25 @@ function srcsetOf(element) {
   return [...sources, element].map((source) => source.srcset).filter(Boolean).join(', ');
 }
 
+function containsPoint(element, { x, y }) {
+  const rect = element.getBoundingClientRect();
+  return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
+}
+
+// elementsFromPoint skips elements with pointer-events: none, such as the lightbox image below its overlay.
+// Each hit element is preceded by its other descendants under the point, which paint above it.
+function elementsUnder(point) {
+  const hit = document.elementsFromPoint(point.x, point.y)
+    .filter((element) => element !== document.body && element !== document.documentElement);
+  const seen = new Set(hit);
+  return hit.flatMap((element) => {
+    const hidden = [...element.querySelectorAll('*')].filter((child) => !seen.has(child)
+      && window.getComputedStyle(child).visibility !== 'hidden' && containsPoint(child, point));
+    hidden.forEach((child) => seen.add(child));
+    return [...hidden.reverse(), element];
+  });
+}
+
 function describeImageLayers() {
   if (!lastContextMenu) {
     return null;
@@ -32,19 +51,17 @@ function describeImageLayers() {
     owner: textOf(document.querySelector('h1.profile-base-info__user-name')),
     album: textOf(document.querySelector('h2.profile-headline')),
     albumLinks: albumLinks.map((link) => link.getAttribute('href')),
-    layers: document.elementsFromPoint(lastContextMenu.x, lastContextMenu.y)
-      .filter((element) => element !== document.body && element !== document.documentElement)
-      .map((element) => {
-        const style = window.getComputedStyle(element);
-        return {
-          backgroundImage: style.backgroundImage,
-          backgroundColor: style.backgroundColor,
-          srcset: srcsetOf(element),
-          photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
-          linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
-          owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
-        };
-      }),
+    layers: elementsUnder(lastContextMenu).map((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        backgroundImage: style.backgroundImage,
+        backgroundColor: style.backgroundColor,
+        srcset: srcsetOf(element),
+        photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
+        linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
+        owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
+      };
+    }),
   };
 }
 
