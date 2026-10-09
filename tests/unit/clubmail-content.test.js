@@ -46,6 +46,13 @@ describe('contentToMarkdown', () => {
     assert.equal(contentToMarkdown('<a href="javascript:alert(1)">click</a>'), 'click');
   });
 
+  test('turns a <j-a> album link into a Markdown link', () => {
+    assert.equal(
+      contentToMarkdown('für das <j-a href="https://www.joyclub.de/profile/fotoalbum/1-2.x.html" target="_blank">Fotoalbum &quot;we&quot; von X</j-a> frei'),
+      'für das [Fotoalbum "we" von X](https://www.joyclub.de/profile/fotoalbum/1-2.x.html) frei',
+    );
+  });
+
   test('decodes entities in text', () => {
     assert.equal(contentToMarkdown('&quot;Tom &amp; Jerry&quot;'), '"Tom & Jerry"');
   });
@@ -93,6 +100,13 @@ describe('contentToHtml', () => {
 
   test('a link without text shows its escaped URL', () => {
     assert.equal(contentToHtml('<a href="http://e.com/?a&amp;b"></a>'), '<a href="http://e.com/?a&amp;b">http://e.com/?a&amp;b</a>');
+  });
+
+  test('keeps a <j-a> link; a javascript: <j-a> keeps only its text', () => {
+    assert.equal(
+      contentToHtml('<j-a href="https://www.joyclub.de/a.html">Fotoalbum &quot;we&quot;</j-a> <j-a href="javascript:x">bad</j-a>'),
+      '<a href="https://www.joyclub.de/a.html">Fotoalbum &quot;we&quot;</a> bad',
+    );
   });
 
   test('a link with another scheme keeps only its text', () => {

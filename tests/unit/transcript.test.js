@@ -105,6 +105,13 @@ describe('renderConversationHtml', () => {
     assert.match(html, /<strong>TestOwner<\/strong> · 08:05<\/p>\n<p>Morning<\/p>\n<\/div>\n<\/body>\n<\/html>\n$/);
   });
 
+  test('own messages get the class own, all others not', () => {
+    const html = renderHtml([message({ content: 'Theirs' }), message({ author: 'TestMe', isOwn: true, content: 'Mine' })]);
+
+    assert.deepEqual([...html.matchAll(/<div class="([^"]+)">/g)].map(([, name]) => name), ['message', 'message own']);
+    assert.match(html, /\.message\.own \{[^}]*margin: [^;]* auto;/);
+  });
+
   test('a reply is a blockquote before the text', () => {
     const reply = { author: 'TestMe', time: at(30, 21, 10), content: 'Hi <a href="https://x">you</a>' };
     const html = renderHtml([message({ content: 'Answer', reply })]);

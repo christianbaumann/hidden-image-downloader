@@ -142,11 +142,11 @@ describe('fetchClubMailImages', () => {
     assert.equal(fetchCalls.length, 3);
     assert.deepEqual(dataOf(fetchCalls[1]), older);
     assert.deepEqual(dataOf(fetchCalls[2]), oldest);
-    assert.deepEqual(result, { origin: ORIGIN, partnerId: PARTNER_ID, messages });
+    assert.deepEqual(result, { origin: ORIGIN, ownId: OWN_ID, partnerId: PARTNER_ID, messages });
   });
 
   test('an empty conversation gives no messages', async () => {
-    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { origin: ORIGIN, partnerId: PARTNER_ID, messages: [] });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { origin: ORIGIN, ownId: OWN_ID, partnerId: PARTNER_ID, messages: [] });
   });
 
   test('a missing cache_killer fails without a request', async () => {
@@ -201,7 +201,7 @@ describe('fetchClubMailImages', () => {
     const serialised = new Function(`return (${fetchClubMailImages.toString()})`)();
     responses = [page([attachmentMessage('1', 'a1')])];
 
-    assert.deepEqual(await serialised([PARTNER_ID]), { origin: ORIGIN, partnerId: PARTNER_ID, messages: [attachmentMessage('1', 'a1')] });
+    assert.deepEqual(await serialised([PARTNER_ID]), { origin: ORIGIN, ownId: OWN_ID, partnerId: PARTNER_ID, messages: [attachmentMessage('1', 'a1')] });
   });
 });
 
@@ -259,8 +259,8 @@ describe('toClubMailConversation messages', () => {
     const result = messagesOf([textMessage('1', { content: 'Hi' }), textMessage('2', { from: ME, content: 'Hello' })]);
 
     assert.deepEqual(result, [
-      { author: 'TestOwner', time: BASE_TIME + 60000, content: 'Hi', reply: null, attachment: null },
-      { author: 'TestMe', time: BASE_TIME + 120000, content: 'Hello', reply: null, attachment: null },
+      { author: 'TestOwner', isOwn: false, time: BASE_TIME + 60000, content: 'Hi', reply: null, attachment: null },
+      { author: 'TestMe', isOwn: false, time: BASE_TIME + 120000, content: 'Hello', reply: null, attachment: null },
     ]);
   });
 
@@ -269,6 +269,21 @@ describe('toClubMailConversation messages', () => {
     const withoutAny = { ...textMessage('2'), from_user_name: '  ', from_user: undefined };
 
     assert.deepEqual(messagesOf([withoutName, withoutAny]).map(({ author }) => author), ['Fallback', 'Unknown']);
+  });
+
+  test('marks the messages of ownId as own; a notice without sender is not own', () => {
+    const notice = { ...textMessage('3'), from_user_id: undefined, from_user_name: undefined, from_user: undefined };
+    const raw = { origin: ORIGIN, ownId: ME.id, messages: [textMessage('1'), textMessage('2', { from: ME }), notice] };
+
+    const flags = toClubMailConversation(raw, 'TestOwner', 'ClubMail').messages.map(({ isOwn }) => isOwn);
+
+    assert.deepEqual(flags, [false, true, false]);
+  });
+
+  test('compares ownId with a numeric from_user_id', () => {
+    const raw = { origin: ORIGIN, ownId: ME.id, messages: [{ ...textMessage('1', { from: ME }), from_user_id: Number(ME.id) }] };
+
+    assert.equal(toClubMailConversation(raw, 'TestOwner', 'ClubMail').messages[0].isOwn, true);
   });
 
   test('missing content becomes an empty string', () => {

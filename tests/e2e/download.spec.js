@@ -253,6 +253,8 @@ test('an open conversation saves a ClubMail-only ZIP named after the partner', a
   ]);
   expect(await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.md'))
     .toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n/);
+  const html = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.html');
+  expect([...html.matchAll(/<div class="([^"]+)">/g)].map(([, name]) => name)).toEqual(['message own', 'message', 'message']);
   expect(requests.some((url) => url.includes('get_latest_message_list_of_conversation'))).toBe(true);
   expect(requests.some((url) => url.includes('graph') || url.includes('access_token'))).toBe(false);
   expect(requests.some((url) => url.includes('read_conversation'))).toBe(false);
