@@ -1,4 +1,4 @@
-import { clubMailConversationIds, fetchClubMailImages } from './lib/clubmail.js';
+import { clubMailConversationIds, fetchClubMailImages, withReason } from './lib/clubmail.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import {
   NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
@@ -21,7 +21,8 @@ const OFFSCREEN_JUSTIFICATION = 'Build a ZIP of profile photos and hand it to ch
 const FINISHED_DOWNLOAD_STATES = new Set(['complete', 'interrupted']);
 const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
 const WARNING_SEPARATOR = '; ';
-const CLUBMAIL_FAILED = { failed: true };
+const INJECTION_FAILED_REASON = 'extension could not run on the page';
+const CLUBMAIL_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
 const ZIP_EXTENSION = '.zip';
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
@@ -216,7 +217,7 @@ async function buildZipOffscreen(tabId, root, entries, reports) {
   return response;
 }
 
-async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false }) {
+async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false, clubMailReason }) {
   activeZipJobs++;
   let response;
   let downloadId;
@@ -233,7 +234,7 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
   const { url, added, missing } = response;
   const warnings = [
     ...(missing.length > 0 ? [`${missing.length} of ${entries.length} photos missing`] : []),
-    ...(clubMailFailed ? [CLUBMAIL_UNAVAILABLE] : []),
+    ...(clubMailFailed ? [withReason(CLUBMAIL_UNAVAILABLE, clubMailReason)] : []),
   ];
   if (warnings.length > 0) {
     await showWarning(tabId, warnings.join(WARNING_SEPARATOR));
@@ -304,7 +305,7 @@ export async function handleActionClick(tab) {
       await clearBadge(tab.id);
       throw error;
     }
-    await showError(tab.id, reason);
+    await showError(tab.id, withReason(reason, error.reason));
     return null;
   }
 }

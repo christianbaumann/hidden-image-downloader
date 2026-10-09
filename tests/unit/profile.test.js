@@ -257,6 +257,11 @@ describe('toAlbumZipRequest with ClubMail', () => {
       'ClubMail/TestOwner_ClubMail_02_a2.jpg',
     ]);
     assert.equal(request.clubMailFailed, false);
+    assert.equal(request.clubMailReason, undefined);
+  });
+
+  test('without a ClubMail result there is no clubMailReason', () => {
+    assert.equal(toAlbumZipRequest(albumRaw(), DATE).clubMailReason, undefined);
   });
 
   test('without a conversation there is no ClubMail folder and no ClubMail line', () => {
@@ -273,11 +278,28 @@ describe('toAlbumZipRequest with ClubMail', () => {
     assert.equal(request.clubMailFailed, true);
   });
 
-  test('a malformed ClubMail result counts as failed', () => {
+  test('a ClubMail failure reason goes into skipped.txt and is returned', () => {
+    const request = toAlbumZipRequest(albumRaw(), DATE, { failed: true, reason: 'HTTP 500' });
+
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n' }]);
+    assert.equal(request.clubMailReason, 'HTTP 500');
+  });
+
+  test('a ClubMail failure without a reason writes no parentheses', () => {
+    for (const clubMail of [{ failed: true }, { failed: true, reason: '' }]) {
+      const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, clubMail);
+
+      assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
+    }
+  });
+
+  test('a malformed ClubMail result counts as failed, without a reason', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN });
 
     assert.equal(request.clubMailFailed, true);
+    assert.equal(request.clubMailReason, undefined);
     assert.deepEqual(folders(request), ['Fotos-von-uns']);
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
   });
 
   test('a failed ClubMail fetch alone writes skipped.txt', () => {
@@ -414,9 +436,19 @@ describe('toClubMailZipRequest', () => {
     assert.match(toClubMailZipRequest({ ...RAW, messages }, DATE).zipName, /^A_B_-C_ClubMail\.zip$/);
   });
 
-  test('throws ClubMailApiError for a failed or malformed result', () => {
+  test('throws ClubMailApiError carrying the failure reason', () => {
+    assert.throws(
+      () => toClubMailZipRequest({ failed: true, reason: 'not your conversation' }, DATE),
+      (error) => error instanceof ClubMailApiError && error.reason === 'not your conversation',
+    );
+  });
+
+  test('throws ClubMailApiError without a reason for a failed or malformed result', () => {
     for (const raw of [{ failed: true }, { origin: ORIGIN }, null, undefined]) {
-      assert.throws(() => toClubMailZipRequest(raw, DATE), ClubMailApiError);
+      assert.throws(
+        () => toClubMailZipRequest(raw, DATE),
+        (error) => error instanceof ClubMailApiError && error.reason === undefined,
+      );
     }
   });
 

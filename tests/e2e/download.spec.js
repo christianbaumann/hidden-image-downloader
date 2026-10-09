@@ -224,8 +224,8 @@ test('a failing ClubMail API still saves the album ZIP and warns', async ({ page
   const result = await clickAction(serviceWorker);
 
   expect(await zipEntries(serviceWorker, result)).not.toContain('ClubMail/');
-  expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n');
-  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
+  expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n');
+  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable (HTTP 500)' });
   expect(await badgeColor(serviceWorker)).toEqual(WARNING_COLOR_RGBA);
 });
 
@@ -284,7 +284,7 @@ test('a failing ClubMail API on a conversation shows the red badge', async ({ pa
   const result = await clickAction(serviceWorker);
 
   expect(result).toBeNull();
-  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
+  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable (HTTP 500)' });
   expect(await badgeColor(serviceWorker)).toEqual(ERROR_COLOR_RGBA);
 });
 

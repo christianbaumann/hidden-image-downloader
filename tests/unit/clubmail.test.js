@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clubMailConversationId, clubMailConversationIds, clubMailPartnerName, fetchClubMailImages, toClubMailConversation,
+  clubMailConversationId, clubMailConversationIds, clubMailPartnerName, fetchClubMailImages, toClubMailConversation, withReason,
 } from '../../lib/clubmail.js';
 import { BASE_TIME, ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
@@ -83,6 +83,7 @@ describe('fetchClubMailImages', () => {
   const CACHE_KILLER = 'ck-123';
   const HTTP_OK = 200;
   const HTTP_UNAUTHORIZED = 401;
+  const HTTP_SERVER_ERROR = 500;
   const originalFetch = globalThis.fetch;
   let fetchCalls;
   let responses;
@@ -149,17 +150,24 @@ describe('fetchClubMailImages', () => {
     assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { origin: ORIGIN, ownId: OWN_ID, partnerId: PARTNER_ID, messages: [] });
   });
 
-  test('a missing cache_killer fails without a request', async () => {
+  test('a missing cache_killer fails with "no session" without a request', async () => {
     stubDocument({ sessionUserId: OWN_ID });
 
-    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true, reason: 'no session' });
     assert.equal(fetchCalls.length, 0);
   });
 
-  test('a missing session user id fails without a request', async () => {
+  test('a missing session user id fails with "no session" without a request', async () => {
     stubDocument({ cacheKiller: CACHE_KILLER });
 
-    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true, reason: 'no session' });
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  test('a missing session user id on a conversation URL gives "no session", not "not your conversation"', async () => {
+    stubDocument({ cacheKiller: CACHE_KILLER });
+
+    assert.deepEqual(await fetchClubMailImages([OWN_ID, PARTNER_ID]), { failed: true, reason: 'no session' });
     assert.equal(fetchCalls.length, 0);
   });
 
@@ -179,29 +187,62 @@ describe('fetchClubMailImages', () => {
     assert.equal(fetchCalls.length, 0);
   });
 
-  test('a conversation of two other users fails without a request', async () => {
-    assert.deepEqual(await fetchClubMailImages(['1000003', PARTNER_ID]), { failed: true });
+  test('a conversation of two other users fails with "not your conversation" without a request', async () => {
+    assert.deepEqual(await fetchClubMailImages(['1000003', PARTNER_ID]), { failed: true, reason: 'not your conversation' });
     assert.equal(fetchCalls.length, 0);
   });
 
+  const throwing = (error) => () => { throw error; };
+  const jsonThrowing = (error) => () => ({ ok: true, status: HTTP_OK, json: async () => { throw error; } });
   const failures = {
-    'HTTP 401': () => jsonResponse({}, HTTP_UNAUTHORIZED),
-    'answer without message_list': () => jsonResponse({ content: null }),
-    'fetch throws': () => { throw new TypeError('Failed to fetch'); },
+    'HTTP 401': [() => jsonResponse({}, HTTP_UNAUTHORIZED), 'HTTP 401'],
+    'HTTP 500': [() => jsonResponse({}, HTTP_SERVER_ERROR), 'HTTP 500'],
+    'content null': [() => jsonResponse({ content: null }), 'bad response'],
+    'empty answer': [() => jsonResponse({}), 'bad response'],
+    'message_list not an array': [() => jsonResponse({ content: { message_list: {} } }), 'bad response'],
+    'json() throws SyntaxError': [jsonThrowing(new SyntaxError('Unexpected token')), 'bad response'],
+    'fetch times out': [throwing(new DOMException('signal timed out', 'TimeoutError')), 'timeout'],
+    'fetch aborts': [throwing(new DOMException('aborted', 'AbortError')), 'timeout'],
+    'json() times out': [jsonThrowing(new DOMException('signal timed out', 'TimeoutError')), 'timeout'],
+    'fetch throws TypeError': [throwing(new TypeError('Failed to fetch')), 'network error'],
   };
-  for (const [name, response] of Object.entries(failures)) {
-    test(`${name} on a later page → { failed: true }`, async () => {
+  for (const [name, [response, reason]] of Object.entries(failures)) {
+    test(`${name} on the first page → { failed: true, reason: '${reason}' }`, async () => {
+      responses = [response];
+
+      assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true, reason });
+    });
+
+    test(`${name} on a later page → { failed: true, reason: '${reason}' }`, async () => {
       responses = [page([textMessage('1')], { offset_message_id: '1' }), response];
 
-      assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
+      assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true, reason });
     });
   }
+
+  test('keeps the failure reason when serialised like executeScript does', async () => {
+    const serialised = new Function(`return (${fetchClubMailImages.toString()})`)();
+    responses = [() => jsonResponse({}, HTTP_SERVER_ERROR)];
+
+    assert.deepEqual(await serialised([PARTNER_ID]), { failed: true, reason: 'HTTP 500' });
+  });
 
   test('stays self-contained when serialised like executeScript does', async () => {
     const serialised = new Function(`return (${fetchClubMailImages.toString()})`)();
     responses = [page([attachmentMessage('1', 'a1')])];
 
     assert.deepEqual(await serialised([PARTNER_ID]), { origin: ORIGIN, ownId: OWN_ID, partnerId: PARTNER_ID, messages: [attachmentMessage('1', 'a1')] });
+  });
+});
+
+describe('withReason', () => {
+  test('appends a reason in parentheses', () => {
+    assert.equal(withReason('ClubMail unavailable', 'HTTP 500'), 'ClubMail unavailable (HTTP 500)');
+  });
+
+  test('an undefined or empty reason gives the bare text', () => {
+    assert.equal(withReason('ClubMail unavailable', undefined), 'ClubMail unavailable');
+    assert.equal(withReason('ClubMail unavailable', ''), 'ClubMail unavailable');
   });
 });
 

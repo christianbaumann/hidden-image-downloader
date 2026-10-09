@@ -482,16 +482,16 @@ describe('profile ZIP', () => {
     assert.match(build.entries.at(-1).url, /^https:\/\/www\.joyclub\.de\/clubmailv3\/attachment\/download\/\?/);
   });
 
-  test('a failed ClubMail fetch shows the amber warning, the album ZIP still downloads', async () => {
-    extracted.fetchClubMailImages = { failed: true };
+  test('a failed ClubMail fetch shows the amber warning with its reason, the album ZIP still downloads', async () => {
+    extracted.fetchClubMailImages = { failed: true, reason: 'HTTP 500' };
 
     const result = await handleActionClick(PROFILE_TAB);
 
     assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
-    assert.equal(callsNamed('sendMessage').at(-1).reports[0].text, 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n');
+    assert.equal(callsNamed('sendMessage').at(-1).reports[0].text, 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n');
     assert.equal(lastBadgeText(), '!');
     assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
-    assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable (HTTP 500)');
   });
 
   for (const [name, inject] of Object.entries({
@@ -504,17 +504,18 @@ describe('profile ZIP', () => {
       const result = await handleActionClick(PROFILE_TAB);
 
       assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
-      assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+      assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable (extension could not run on the page)');
+      assert.match(callsNamed('sendMessage').at(-1).reports[0].text, /\nClubMail: unavailable \(extension could not run on the page\)\n$/);
     });
   }
 
   test('missing photos and a failed ClubMail fetch share one tooltip', async () => {
-    extracted.fetchClubMailImages = { failed: true };
+    extracted.fetchClubMailImages = { failed: true, reason: 'HTTP 500' };
     zipResponse = { url: BLOB_URL, added: 1, missing: ['https://image-user.feig-partner.de/x.jpg'] };
 
     await handleActionClick(PROFILE_TAB);
 
-    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing; ClubMail unavailable');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing; ClubMail unavailable (HTTP 500)');
   });
 
   test('builds the ZIP offscreen and downloads its blob URL', async () => {
@@ -826,17 +827,30 @@ describe('ClubMail conversation ZIP', () => {
   });
 
   const failures = {
-    'a failed ClubMail fetch': () => [{ result: { failed: true } }],
-    'a failing injection': () => { throw new Error('Frame was removed'); },
-    'an injection without result': () => [{ result: undefined }],
+    'a failed ClubMail fetch': [
+      () => [{ result: { failed: true, reason: 'not your conversation' } }],
+      'Hidden Image Downloader: ClubMail unavailable (not your conversation)',
+    ],
+    'a failing injection': [
+      () => { throw new Error('Frame was removed'); },
+      'Hidden Image Downloader: ClubMail unavailable (extension could not run on the page)',
+    ],
+    'an injection without result': [
+      () => [{ result: undefined }],
+      'Hidden Image Downloader: ClubMail unavailable (extension could not run on the page)',
+    ],
+    'a failed ClubMail fetch without a reason': [
+      () => [{ result: { failed: true } }],
+      'Hidden Image Downloader: ClubMail unavailable',
+    ],
   };
-  for (const [name, inject] of Object.entries(failures)) {
+  for (const [name, [inject, title]] of Object.entries(failures)) {
     test(`${name} shows the red badge "ClubMail unavailable", no document`, async () => {
       executeScript = inject;
 
       assert.equal(await handleActionClick(CONVERSATION_TAB), null);
 
-      assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+      assert.equal(lastTitle(), title);
       assert.equal(callsNamed('setBadgeBackgroundColor').at(-1).color, '#d00000');
       assert.equal(callsNamed('createDocument').length, 0);
     });
