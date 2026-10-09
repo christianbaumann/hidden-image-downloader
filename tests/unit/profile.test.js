@@ -392,8 +392,8 @@ describe('fetchProfileAlbums', () => {
     assert.ok(elapsed >= TITLE_STABLE_MS && elapsed < TITLE_STABLE_MS + 2 * TITLE_POLL_MS);
   });
 
-  test('gives up on a missing main card after the wait limit', async () => {
-    stubDocument({ cards: [REGULAR_CARD] });
+  test('gives up on a page without album cards after the wait limit', async () => {
+    stubDocument({ cards: [] });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
@@ -405,7 +405,10 @@ describe('fetchProfileAlbums', () => {
     const FLIP_MS = 300;
     stubDocument({ cards: (now) => [{ ...MAIN_CARD, title: Math.floor(now / FLIP_MS) % 2 ? 'A' : 'B' }] });
 
-    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.mainAlbumTitle, '');
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, '');
+    assert.ok(elapsed >= TITLE_WAIT_MS);
   });
 
   test('a missing owner heading gives an empty owner', async () => {
@@ -440,6 +443,16 @@ describe('fetchProfileAlbums', () => {
       assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { failed: true });
     });
   }
+
+  test('a missing token fails without waiting for the main album title', async () => {
+    responses[0] = failures['token JSON without access_token'][1];
+    stubDocument({ cards: [] });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.deepEqual(result, { failed: true });
+    assert.ok(elapsed < TITLE_STABLE_MS);
+  });
 
   test('stays self-contained when serialised like executeScript does', async () => {
     const serialised = new Function(`return (${fetchProfileAlbums.toString()})`)();
