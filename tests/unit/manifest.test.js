@@ -25,9 +25,9 @@ test('manifest requests only scripting, downloads, offscreen and contextMenus pe
   assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen', 'contextMenus']);
 });
 
-test('manifest runs content.js on JoyClub pages only', () => {
+test('manifest runs content.js in every JoyClub frame only', () => {
   assert.deepEqual(manifest.content_scripts, [
-    { matches: ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'], js: ['content.js'], run_at: 'document_start' },
+    { matches: ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'], js: ['content.js'], run_at: 'document_start', all_frames: true },
   ]);
   assert.ok(existsSync(resolve(root, 'content.js')));
 });

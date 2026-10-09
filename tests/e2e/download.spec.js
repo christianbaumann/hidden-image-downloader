@@ -9,6 +9,8 @@ const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
 const CONVERSATION_URL = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-1000002-1000001/';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
 const ALBUM_PAGE_URL = 'https://www.joyclub.de/profile/fotoalbum/1000001.testowner.html';
+const FEED_URL = 'https://www.joyclub.de/e2e/feed';
+const FRAME_URL = 'https://www.joyclub.de/e2e/frame';
 const MENU_ITEM_ID = 'save-hidden-image';
 // A spot below every fixture's content, where no image is.
 const EMPTY_SPOT = { x: 600, y: 500 };
@@ -381,16 +383,18 @@ async function centerOf(page, selector) {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
-// Fires a right-click at point in the page; Playwright cannot open Chrome's context menu,
-// so the menu click is handed to the service worker's handler.
-async function saveHiddenImageAt(page, serviceWorker, point) {
-  await page.evaluate(({ x, y }) => document.elementFromPoint(x, y).dispatchEvent(
+// Fires a right-click at point in the frame (the page by default); Playwright cannot open Chrome's context menu,
+// so the menu click is handed to the service worker's handler with the frame's Chrome frameId.
+async function saveHiddenImageAt(page, serviceWorker, point, frame = page.mainFrame()) {
+  await frame.evaluate(({ x, y }) => document.elementFromPoint(x, y).dispatchEvent(
     new MouseEvent('contextmenu', { clientX: x, clientY: y, bubbles: true, cancelable: true }),
   ), point);
-  return serviceWorker.evaluate(async (menuItemId) => {
+  return serviceWorker.evaluate(async ({ menuItemId, frameUrl }) => {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    return globalThis.handleMenuClick({ menuItemId, frameId: 0 }, tab);
-  }, MENU_ITEM_ID);
+    const frames = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => location.href });
+    const { frameId } = frames.find(({ result }) => result === frameUrl);
+    return globalThis.handleMenuClick({ menuItemId, frameId }, tab);
+  }, { menuItemId: MENU_ITEM_ID, frameUrl: frame.url() });
 }
 
 test('the context menu saves the album card below the overlay under its ZIP name', async ({ page, serviceWorker, imageServer }) => {
@@ -441,4 +445,26 @@ test('the context menu on a backdrop does not save the album card behind it', as
 
   expect(result).toBeNull();
   expect((await badgeState(serviceWorker)).title).toBe('Hidden Image Downloader: image address not found');
+});
+
+test('the context menu saves a feed member card from its picture sources under the card user name', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, FEED_URL, await fixture('feed.html', { __IMAGE_BASE__: imageServer.base }));
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.picture-ui'));
+
+  expect(result.filename).toBe('CardUser_00000003.jpg');
+  expect(result.url).toBe(`${imageServer.base}/${testUuid(3)}/orig/image_720_k.jpg`);
+});
+
+test('the context menu saves the image below the pointer inside a JoyClub iframe', async ({ page, serviceWorker, imageServer }) => {
+  await page.route(FEED_URL, async (route) => route.fulfill({
+    contentType: 'text/html; charset=utf-8', body: await fixture('feed.html', { __IMAGE_BASE__: imageServer.base }),
+  }));
+  await serve(page, FRAME_URL, await fixture('frame.html', { __FRAME_URL__: FEED_URL }));
+  const frame = page.frame({ url: FEED_URL });
+  await frame.waitForSelector('.picture-ui');
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(frame, '.picture-ui'), frame);
+
+  expect(result.filename).toBe('CardUser_00000003.jpg');
 });

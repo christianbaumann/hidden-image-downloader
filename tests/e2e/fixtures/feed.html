@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8"><title>Feed fixture</title>
+  <style>
+    .picture-ui { position: relative; width: 200px; height: 200px; }
+    .picture-ui img { display: block; width: 200px; height: 200px; }
+    .img-pane { position: absolute; inset: 0; }
+  </style>
+</head>
+<body>
+  <j-member-card class="feed-member-card" user-name="CardUser">
+    <div class="image-ui">
+      <div class="protected picture-ui">
+        <picture>
+          <source srcset="__IMAGE_BASE__/00000003-1111-4111-8111-111111111111/orig/image_720_k.webp 720w, __IMAGE_BASE__/00000003-1111-4111-8111-111111111111/orig/image_120_k.webp 120w">
+          <source srcset="__IMAGE_BASE__/00000003-1111-4111-8111-111111111111/orig/image_720_k.jpg 720w, __IMAGE_BASE__/00000003-1111-4111-8111-111111111111/orig/image_120_k.jpg 120w">
+          <img class="core-img cover" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="">
+        </picture>
+        <img class="img-pane" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="">
+      </div>
+    </div>
+  </j-member-card>
+</body>
+</html>

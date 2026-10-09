@@ -14,7 +14,10 @@ const ALBUM_LINKS = [
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3002_x',
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3003_x',
 ];
-const NONE = { backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', photoId: null, linkIndex: -1, owner: '' };
+const NONE = {
+  backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', src: '', photoId: null, linkIndex: -1, owner: '', userName: '',
+};
+const OVERLAY_GIF = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
 const layer = (overrides) => ({ ...NONE, ...overrides });
 
@@ -165,6 +168,30 @@ describe('toHiddenImageCandidates', () => {
     };
 
     assert.equal(toHiddenImageCandidates(raw)[0].url, JPG_URL);
+  });
+
+  test('takes the src of a plain image when there is no background image or srcset', () => {
+    const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ src: OVERLAY_GIF }), layer({ src: JPG_URL })] };
+
+    assert.deepEqual(toHiddenImageCandidates(raw), [{ url: JPG_URL, filename: 'TestOwner_00000002.jpg' }]);
+  });
+
+  test('never takes a GIF src: an overlay above nothing has no image', () => {
+    const raw = { pageUrl: PAGE_URL, layers: [layer({ src: OVERLAY_GIF }), layer({ src: 'https://www.joyclub.de/spacer.gif?v=1' })] };
+
+    assert.throws(() => toHiddenImageCandidates(raw), NoImageUrlError);
+  });
+
+  test('a srcset wins over the src of the same image', () => {
+    const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ src: 'https://x/small.jpg', srcset: `${JPG_URL} 1920w` })] };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].url, JPG_URL);
+  });
+
+  test('the user name of a member card names the owner, before the page owner', () => {
+    const raw = { pageUrl: PAGE_URL, owner: 'PageOwner', layers: [layer({ srcset: `${JPG_URL} 720w`, userName: 'CardUser' })] };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].filename, 'CardUser_00000002.jpg');
   });
 
   test('no image layer throws NoImageUrlError', () => {

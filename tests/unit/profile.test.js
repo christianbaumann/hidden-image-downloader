@@ -157,9 +157,15 @@ describe('toAlbumZipRequest', () => {
     assert.deepEqual(request.reports, []);
   });
 
-  test('numbers an album without gaps when a source is not found', () => {
+  test('numbers photos by their album position, leaving a gap for a source not found', () => {
     const request = toAlbumZipRequest(rawFor({ albums: [{ title: 'A', ids: ['1', '2', '3'] }], notFound: ['2'] }), DATE);
-    assert.deepEqual(names(request), [`A/TestOwner_A_01_${keyOf(1)}.jpg`, `A/TestOwner_A_02_${keyOf(3)}.jpg`]);
+    assert.deepEqual(names(request), [`A/TestOwner_A_01_${keyOf(1)}.jpg`, `A/TestOwner_A_03_${keyOf(3)}.jpg`]);
+  });
+
+  test('pads numbers to the album length, also when sources are not found', () => {
+    const ids = Array.from({ length: 100 }, (_, i) => String(i + 1));
+    const request = toAlbumZipRequest(rawFor({ albums: [{ title: 'A', ids }], notFound: ids.slice(1) }), DATE);
+    assert.deepEqual(names(request), [`A/TestOwner_A_001_${keyOf(1)}.jpg`]);
   });
 
   test('falls back to Hauptalbum without a main album title', () => {

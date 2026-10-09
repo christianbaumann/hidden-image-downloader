@@ -57,16 +57,25 @@ function describeImageLayers() {
         backgroundImage: style.backgroundImage,
         backgroundColor: style.backgroundColor,
         srcset: srcsetOf(element),
+        src: element.tagName === 'IMG' ? element.getAttribute('src') ?? '' : '',
         photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
         linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
         owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
+        userName: element.closest('[user-name]')?.getAttribute('user-name') ?? '',
       };
     }),
   };
 }
 
+// A failure answers null ("image address not found"); without an answer the menu would ask to reload the page.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.action === DESCRIBE_ACTION) {
+  if (message?.action !== DESCRIBE_ACTION) {
+    return;
+  }
+  try {
     sendResponse(describeImageLayers());
+  } catch (error) {
+    console.warn(`describing the image failed: ${error.name}`);
+    sendResponse(null);
   }
 });
