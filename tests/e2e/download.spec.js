@@ -9,6 +9,7 @@ const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
 const CONVERSATION_URL = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-1000002-1000001/';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
 const HTTP_SERVER_ERROR = 500;
+const HTTP_NOT_FOUND = 404;
 const ALBUM_LIST = listResult({
   main: ['101'],
   albums: [
@@ -240,6 +241,7 @@ test('a failing ClubMail API still saves the album ZIP and warns', async ({ page
 
   expect(await zipEntries(serviceWorker, result)).not.toContain('ClubMail/');
   expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable (HTTP 500)\n');
+  expect(await zipText(serviceWorker, result, 'log.txt')).toContain('clubmail: failed  reason=HTTP 500');
   expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable (HTTP 500)' });
   expect(await badgeColor(serviceWorker)).toEqual(WARNING_COLOR_RGBA);
 });
@@ -303,7 +305,7 @@ test('a failing ClubMail API on a conversation shows the red badge', async ({ pa
   expect(await badgeColor(serviceWorker)).toEqual(ERROR_COLOR_RGBA);
 });
 
-test('lists a missing album photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {
+test('lists a missing album photo in missing.txt and log.txt and warns', async ({ page, serviceWorker, imageServer }) => {
   await serveProfile(page, imageServer, { secondUuid: MISSING_PHOTO_UUID });
 
   const result = await clickAction(serviceWorker);
@@ -311,9 +313,14 @@ test('lists a missing album photo in missing.txt and warns', async ({ page, serv
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'log.txt',
     'missing.txt',
     'skipped.txt',
   ]);
+  const [missingUrl] = (await zipText(serviceWorker, result, 'missing.txt')).split('\n');
+  const log = await zipText(serviceWorker, result, 'log.txt');
+  expect(log).toContain('path: profile');
+  expect(log).toContain(`photo: missing  status=${HTTP_NOT_FOUND}  url=${missingUrl.split('?')[0]}\n`);
   const badge = await badgeState(serviceWorker);
   expect(badge.text).toBe('!');
   expect(badge.title).toContain('1 of 2 photos missing');

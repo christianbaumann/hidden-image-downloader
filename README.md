@@ -33,7 +33,7 @@ You need to be logged in on the domain you are browsing (`joyclub.de` or `joyclu
 
 If nothing can be downloaded (other site, neither a lightbox nor profile photos, album list unavailable, ClubMail unavailable on a conversation page, no image address, download failed), the icon shows a red `!` badge and its tooltip names the reason. The badge only reports failures before the download starts; later network errors show up in Chrome's download list only.
 
-A red badge also saves `hidden-image-downloader-log.txt` to the download folder, as does an unexpected error. It lists the steps of the click (page type, album list and ClubMail results, `.jpg` probe status, download) with the time since the click and the reason it failed. It holds no tokens, cookies or message text, and URLs without their query. A click that succeeds saves no log.
+A red badge also saves `hidden-image-downloader-log.txt` to the download folder, as does an unexpected error. It lists the steps of the click (page type, album list and ClubMail results, `.jpg` probe status, download) with the time since the click and the reason it failed. It holds no tokens, cookies or message text, and URLs without their query. An amber badge writes the same log as `log.txt` into the ZIP, next to `missing.txt` and `skipped.txt`, including every failed or retried photo fetch with its HTTP status or error. A click that succeeds saves no log.
 
 ## Development
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import { FETCH_CONCURRENCY, FETCH_RETRIES, RETRY_BASE_DELAY_MS, buildZip, isRetryable, mapWithLimit } from '../../lib/zip.js';
 import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
+import { ZIP_LOG_NAME } from '../../lib/log.js';
 
 const URL_A = 'https://img.example/a.jpg';
 const URL_B = 'https://img.example/b.jpg';
@@ -121,7 +122,7 @@ describe('buildZip', () => {
       assert.equal(added, 1);
       assert.deepEqual(missing, [URL_B]);
       const zip = await readZip(blob);
-      assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', MISSING_REPORT_NAME]);
+      assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', ZIP_LOG_NAME, MISSING_REPORT_NAME]);
       assert.equal(await zip.file(MISSING_REPORT_NAME).async('string'), `${URL_B}\n`);
     });
   }
@@ -189,11 +190,11 @@ describe('buildZip', () => {
     assert.equal(await zip.file(SKIPPED_REPORT_NAME).async('string'), SKIPPED_TEXT);
   });
 
-  it('writes reports and missing.txt together', async () => {
+  it('writes reports, missing.txt and log.txt together', async () => {
     const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new Error('x') });
     const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, delay: noDelay });
     const zip = await readZip(blob);
-    assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', MISSING_REPORT_NAME, SKIPPED_REPORT_NAME]);
+    assert.deepEqual(Object.keys(zip.files).sort(), ['Owner_01_a.jpg', ZIP_LOG_NAME, MISSING_REPORT_NAME, SKIPPED_REPORT_NAME]);
   });
 
   it('creates folders from entry names', async () => {
@@ -204,12 +205,13 @@ describe('buildZip', () => {
     assert.deepEqual(Object.keys(zip.files).sort(), ['A/', 'A/x.jpg']);
   });
 
-  it('puts entries, reports and missing.txt into the root folder', async () => {
+  it('puts entries, reports, missing.txt and log.txt into the root folder', async () => {
     const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new Error('x') });
     const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, root: 'Owner_2026', delay: noDelay });
     const zip = await readZip(blob);
     assert.deepEqual(Object.keys(zip.files).sort(), [
-      'Owner_2026/', 'Owner_2026/Owner_01_a.jpg', `Owner_2026/${MISSING_REPORT_NAME}`, `Owner_2026/${SKIPPED_REPORT_NAME}`,
+      'Owner_2026/', 'Owner_2026/Owner_01_a.jpg', `Owner_2026/${ZIP_LOG_NAME}`,
+      `Owner_2026/${MISSING_REPORT_NAME}`, `Owner_2026/${SKIPPED_REPORT_NAME}`,
     ]);
   });
 
@@ -340,5 +342,55 @@ describe('buildZip retries', () => {
     await flush();
     assert.equal(calls.length, MAX_ATTEMPTS);
     assert.deepEqual((await result).missing, [URL_A]);
+  });
+});
+
+describe('buildZip log.txt', () => {
+  const CLICK_LOG = { startedAt: Date.UTC(2026, 9, 9, 12), lines: [{ ms: 5, step: 'path: profile' }] };
+  const URL_B_QUERY = `${URL_B}?token=secret`;
+
+  it('logs the retries and the final status of a missing photo after the click log', async () => {
+    const entries = [ENTRIES[0], { url: URL_B_QUERY, name: 'Owner_02_b.jpg' }];
+    const failing = { ok: false, status: HTTP_UNAVAILABLE };
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B_QUERY]: failing });
+    const { blob, logLines } = await buildZip(entries, { JSZip, fetch, delay: noDelay, log: CLICK_LOG, root: 'Owner' });
+    const text = await (await readZip(blob)).file(`Owner/${ZIP_LOG_NAME}`).async('string');
+    const lines = text.split('\n').filter((line) => line.startsWith('+'));
+    assert.equal(lines[0], '+5 ms  path: profile');
+    assert.deepEqual(lines.slice(1).map((line) => line.replace(/^\+\d+ ms {2}/, '')), [
+      ...Array(FETCH_RETRIES).fill(`photo: retry  status=${HTTP_UNAVAILABLE}  url=${URL_B}`),
+      `photo: missing  status=${HTTP_UNAVAILABLE}  url=${URL_B}`,
+    ]);
+    assert.doesNotMatch(text, /secret/);
+    assert.equal(logLines.length, MAX_ATTEMPTS);
+  });
+
+  it('logs the error name of a photo whose fetch throws', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new TypeError('Failed to fetch') });
+    const { logLines } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
+    assert.deepEqual(logLines.at(-1), { ms: logLines.at(-1).ms, step: 'photo: missing', status: undefined, reason: 'TypeError', url: URL_B });
+  });
+
+  it('writes log.txt for a warning without missing photos', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: okResponse(BYTES_B) });
+    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, log: CLICK_LOG, warning: true });
+    const text = await (await readZip(blob)).file(ZIP_LOG_NAME).async('string');
+    assert.match(text, /\+5 ms {2}path: profile\n/);
+  });
+
+  it('writes no log.txt for a clean build', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: okResponse(BYTES_B) });
+    const { blob, logLines } = await buildZip(ENTRIES, { JSZip, fetch, log: CLICK_LOG });
+    assert.equal((await readZip(blob)).file(ZIP_LOG_NAME), null);
+    assert.deepEqual(logLines, []);
+  });
+
+  it('returns the fetch log lines without a blob when every photo fails', async () => {
+    const { fetch } = stubFetch({ [URL_A]: { ok: false, status: HTTP_NOT_FOUND }, [URL_B]: { ok: false, status: HTTP_NOT_FOUND } });
+    const { blob, logLines } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
+    assert.equal(blob, null);
+    assert.deepEqual(logLines.map(({ step, status }) => `${step} ${status}`), [
+      `photo: missing ${HTTP_NOT_FOUND}`, `photo: missing ${HTTP_NOT_FOUND}`,
+    ]);
   });
 });

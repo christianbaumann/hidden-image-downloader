@@ -201,7 +201,8 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-async function buildZipOffscreen(tabId, root, entries, reports, log) {
+// warning: the click already warns (ClubMail unavailable), so the ZIP gets log.txt even without missing photos.
+async function buildZipOffscreen(tabId, { root, entries, reports, warning }, log) {
   const jobId = nextZipJobId++;
   zipJobTabs.set(jobId, tabId);
   let response;
@@ -209,7 +210,9 @@ async function buildZipOffscreen(tabId, root, entries, reports, log) {
     await ensureOffscreenDocument();
     response = await chrome.runtime.sendMessage({
       target: 'offscreen', action: 'build-zip', jobId, root, entries, reports,
+      log: { startedAt: log.startedAt, lines: [...log.lines] }, warning,
     });
+    log.append(response?.logLines ?? []);
   } catch (error) {
     log.add('zip: build failed', { reason: error.name });
     throw new DownloadFailedError();
@@ -229,7 +232,7 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
   let downloadId;
   try {
     const root = zipName.slice(0, -ZIP_EXTENSION.length);
-    response = await buildZipOffscreen(tabId, root, entries, reports, log);
+    response = await buildZipOffscreen(tabId, { root, entries, reports, warning: clubMailFailed }, log);
     log.add(`zip: ${response.added} added, ${response.missing.length} missing`);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {

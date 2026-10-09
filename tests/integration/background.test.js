@@ -1122,6 +1122,33 @@ describe('failure log', () => {
     assert.match(logText(), /zip: build failed {2}reason=no ZIP in the answer\n.*error: DownloadFailedError/);
   });
 
+  test('the offscreen fetch failures land in the log of a failed build', async () => {
+    zipResponse = {
+      url: null, added: 0, missing: ['a'], logLines: [{ ms: 7, step: 'photo: missing', status: 404, url: 'https://img.example/a.jpg' }],
+    };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.match(logText(), /\+7 ms {2}photo: missing {2}status=404 {2}url=https:\/\/img\.example\/a\.jpg\n.*zip: build failed/s);
+  });
+
+  test('build-zip carries the click log and the ClubMail warning', async () => {
+    extracted.fetchClubMailImages = { failed: true, reason: 'HTTP 500' };
+
+    await handleActionClick(PROFILE_TAB);
+
+    const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
+    assert.equal(build.warning, true);
+    assert.equal(typeof build.log.startedAt, 'number');
+    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'clubmail: failed']);
+  });
+
+  test('build-zip carries no warning when ClubMail was read', async () => {
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(callsNamed('sendMessage').find(({ action }) => action === 'build-zip').warning, false);
+  });
+
   test('a failed ZIP download is logged after the build', async () => {
     download = async ({ filename }) => {
       if (filename !== LOG_FILENAME) {
