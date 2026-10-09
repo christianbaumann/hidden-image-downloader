@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 04: Album-style filename for the toolbar lightbox
 
+**Status:** Done.
+
 A lightbox image saved from the toolbar is named like its ZIP entry, `<Owner>_<Album>_<nn>_<photo-id>.jpg`, or `<Owner>_<photo-id>.jpg` when album or position is unknown. No timestamp.
 
 ## References

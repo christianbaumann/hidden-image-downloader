@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 09: Spike: profile video format
 
+**Status:** Not started. Live spike: needs the user's session (cookie export, see `CLAUDE.md` "Live check against a real session"); the user names the cookie file. Same method as task 07: capture JoyClub's own GraphQL requests with `page.on('request')` on a profile with videos.
+
 A research note states whether profiles have videos and how JoyClub serves them (mp4, HLS, DRM), so task 10 can be designed or dropped.
 
 ## References

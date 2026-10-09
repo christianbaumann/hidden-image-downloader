@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 07: Spike: profile text and caption fields
 
+**Status:** Done and approved (2026-10-09). Result: `../research-07-profile-text.md`. Commits `3b955c3`, `4174019`.
+
 A research note states which profile text sections and which album and photo text fields JoyClub offers, and how to read them, so task 08 can be designed on facts.
 
 ## References

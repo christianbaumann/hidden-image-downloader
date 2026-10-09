@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 02: Failure log file on red badge or exception
 
+**Status:** Done.
+
 A click that ends with a red badge or an unexpected exception also downloads `hidden-image-downloader-log.txt`, which shows the steps of the click and why it failed. Clean clicks write nothing.
 
 ## References

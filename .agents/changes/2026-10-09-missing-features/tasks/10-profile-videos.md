@@ -6,6 +6,8 @@ dependencies:
 
 # Task 10: Profile videos in Videos/
 
+**Status:** Blocked by task 09. Task 06 is done, so videos must also get a record key (like `photoKey`) in `lib/incremental.js`.
+
 Profile videos served as plain files go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP; streamed videos are listed in `skipped.txt`.
 
 ## References

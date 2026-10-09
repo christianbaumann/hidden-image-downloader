@@ -6,6 +6,8 @@ dependencies:
 
 # Task 03: log.txt inside amber ZIPs
 
+**Status:** Done.
+
 A ZIP saved with an amber badge (missing photos or ClubMail unavailable) holds `<top folder>/log.txt` next to `missing.txt` and `skipped.txt`, including the offscreen document's fetch failures and retries.
 
 ## References

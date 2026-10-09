@@ -6,6 +6,8 @@ dependencies:
 
 # Task 08: profile.md and profile.html in the profile ZIP
 
+**Status:** Next to implement. Not started; the user's decisions of 2026-10-09 are recorded below (commit `76c9505`). Start with `../research-07-profile-text.md`, section "Consequences for task 08", and the incremental record in `lib/incremental.js` (task 06).
+
 The profile ZIP holds `profile.md` and `profile.html` at its root: the profile text, then one section per album with its description and the photo list (title, description, hashtags → relative file link).
 
 ## References

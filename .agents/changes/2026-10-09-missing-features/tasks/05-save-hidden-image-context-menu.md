@@ -6,6 +6,8 @@ dependencies:
 
 # Task 05: "Save hidden image" context menu
 
+**Status:** Done. Its menu now lists every page context instead of `all` (fixed in task 06, since `all` also covered the toolbar icon menu).
+
 Right-clicking any image on a JoyClub page (profile cards, album grids, lightbox, feed) offers "Save hidden image", which saves the real image below the overlay under the task 04 name.
 
 ## References

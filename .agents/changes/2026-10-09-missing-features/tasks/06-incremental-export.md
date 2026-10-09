@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 06: Incremental profile and conversation ZIP
 
+**Status:** Done and approved by the user (2026-10-09). Commits `dd05e08`, `685439a`, `fed2e98`.
+
 A click on a profile or conversation saves only the photos and attachments not saved before; "Download everything again" in the action context menu saves the full ZIP.
 
 ## References

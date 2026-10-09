@@ -6,6 +6,8 @@ dependencies:
 
 # Task 11: Close the context menu gaps
 
+**Status:** Done.
+
 Close the known limitations of the "Save hidden image" menu found in the task 05 review and live check.
 
 ## References

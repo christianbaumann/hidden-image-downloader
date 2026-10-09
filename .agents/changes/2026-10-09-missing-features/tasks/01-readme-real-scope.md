@@ -5,6 +5,8 @@ dependencies: []
 
 # Task 01: README states the real scope
 
+**Status:** Done.
+
 The README no longer promises Firefox or "many websites": it says the extension runs in Chrome only and on JoyClub only.
 
 ## References

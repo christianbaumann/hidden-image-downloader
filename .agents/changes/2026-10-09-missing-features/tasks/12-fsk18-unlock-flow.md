@@ -6,6 +6,8 @@ dependencies:
 
 # Task 12: FSK18 unlock before a download
 
+**Status:** In progress, paused. Spikes done except the scripted fill of the Vue password field; design and decisions recorded below. Build only in a session without auto mode (see Decisions). Task 06 already added the `storage` permission.
+
 JoyClub shows 18+ content only after the user re-enters their login password once per session ("Passwort für FSK18-Zugang", https://support.joyclub.com/hc/de/articles/360020425600). Locked, 18+ photos are pixelated small variants (`…/orig/image_180_pxl_<token>.jpg`) inside links to `/webauth/activate/fsk18/`. A click should check the session first: unlocked → go on; locked → open the unlock prompt for the user, wait until they entered their password, then go on. The extension never sees or handles the password.
 
 The standard 18+ content that triggers the prompt comes from the user's own profile, BitPaerchen (user id `6407991`) (user decision 2026-10-09).
@@ -48,19 +50,19 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
   * **Note:** Live 2026-10-09 (locked session): `/login/agecheck.html` ends on `identity.joyclub.com/ui/fsk18/challenge/password`, text "Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein". One `form` (method get, no action, Vue/Vuetify): hidden `input[name=username][autocomplete=username]`, password `input.v-field__input[type=password][autocomplete=current-password]` (generated id, no name), `j-button.submit-btn` ("Freischalten"), `j-button.cancel-btn` ("Abbrechen"). Error message for a wrong password: not seen (would cost an attempt against the rate limit).
 * [x] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
   * **Note:** Live 2026-10-09, locked session (`"0"`): the user typed the password, the script clicked `j-button.submit-btn` (`element.click()`). Steps: `/login/agecheck.html` → `identity.joyclub.com/ui/fsk18` → `/ui/fsk18/challenge/password`; after the click `/ui/redirect` → back on the opening page (`/my_joy/feed/friends/`) within ~1 s, status `"1"`. The scripted fill of the Vue field (value + `input` event) is not tested yet. The result was read by the user: Claude Code's auto mode classifier blocks Claude from this test's output ("Auto-Mode Bypass"), so building option C under auto mode is likely blocked too.
-* [ ] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
+* [ ] Scripted fill of the Vue password field (value + `input` event) followed by the submit is accepted (one attempt, the user's real password from the options page of the test extension)
 
 ## Decisions (2026-10-09)
 
 * Build option C (stored password, automatic unlock) in a Claude Code session without auto mode: auto mode's classifier blocks the password submit and its test output.
 * The `Bash(playwright-cli:*)` allow rule in `.claude/settings.local.json` stays until this task is done, then gets removed.
 * The live check needs fresh exports of the `www.joyclub.de` and `identity.joyclub.com` cookies from a locked session; the old exports are deleted.
-* Next task after this one: 06.
+* Next task after this one: 06. **Note:** 06 was done first (2026-10-09), then 07; 08 is next in order.
 
 ## Work
 
 * [ ] Options page: store / forget the password (`chrome.storage.local`), with the risk note
-* [ ] `manifest.json`: `storage` permission, host permission `https://identity.joyclub.com/*`, `options_ui`
+* [ ] `manifest.json`: `storage` permission (already there since task 06), host permission `https://identity.joyclub.com/*`, `options_ui`
 * [ ] Lock check and unlock flow in `background.js` (pure parts in `lib/`), one attempt, timeout, red badge + log on failure; no password in logs
 * [ ] Toolbar ZIP unlocks before the album API; menu click on a gated layer without password → "unlock 18+ first"; proactive unlock + reload for locked JoyClub pages
 * [ ] Unit, integration and E2E tests (E2E: routed fake prompt page and fsk18 status)
