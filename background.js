@@ -1,3 +1,4 @@
+import { fetchClubMailImages } from './lib/clubmail.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import { NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest } from './lib/profile.js';
 import { PHASES, overallPercent, progressBadgeText } from './lib/progress.js';
@@ -8,7 +9,7 @@ const BADGE_TEXT = '!';
 const BADGE_ERROR_COLOR = '#d00000';
 const BADGE_WARNING_COLOR = '#e0a000';
 const BADGE_PROGRESS_COLOR = '#1a73e8';
-const API_PHASE_TITLE = 'loading album list';
+const API_PHASE_TITLE = 'loading album list and ClubMail';
 const CONFLICT_ACTION = 'uniquify';
 const PROBE_TIMEOUT_MS = 5000;
 const OFFSCREEN_URL = 'offscreen.html';
@@ -16,6 +17,9 @@ const OFFSCREEN_READY_LIMIT = 50;
 const OFFSCREEN_READY_DELAY_MS = 50;
 const OFFSCREEN_JUSTIFICATION = 'Build a ZIP of profile photos and hand it to chrome.downloads via a blob URL';
 const FINISHED_DOWNLOAD_STATES = new Set(['complete', 'interrupted']);
+const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
+const WARNING_SEPARATOR = '; ';
+const CLUBMAIL_FAILED = { failed: true };
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -88,13 +92,28 @@ async function extractFromTab(tabId, func, args = []) {
   }
 }
 
-// fetchers: [func, args] pairs injected in parallel; the badge counts how many have resolved.
+// fetchers: [func, args, fallback?] injected in parallel; the badge counts how many have resolved.
+// A fetcher with a fallback answers it instead of failing the click when its injection fails or yields nothing.
+// After one fails, later ones leave the badge alone, so they can't paint progress over the error.
 async function extractAllWithProgress(tabId, fetchers) {
   let resolved = 0;
+  let failed = false;
   await showApiProgress(tabId, resolved, fetchers.length);
-  return Promise.all(fetchers.map(async ([func, args]) => {
-    const result = await extractFromTab(tabId, func, args);
-    await showApiProgress(tabId, ++resolved, fetchers.length);
+  return Promise.all(fetchers.map(async ([func, args, fallback]) => {
+    let result;
+    try {
+      result = await extractFromTab(tabId, func, args) ?? fallback;
+    } catch (error) {
+      if (fallback === undefined) {
+        failed = true;
+        throw error;
+      }
+      result = fallback;
+    }
+    resolved++;
+    if (!failed) {
+      await showApiProgress(tabId, resolved, fetchers.length);
+    }
     return result;
   }));
 }
@@ -191,7 +210,7 @@ async function buildZipOffscreen(tabId, entries, reports) {
   return response;
 }
 
-async function downloadZip(tabId, { zipName, entries, reports = [] }) {
+async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false }) {
   activeZipJobs++;
   let response;
   let downloadId;
@@ -205,8 +224,12 @@ async function downloadZip(tabId, { zipName, entries, reports = [] }) {
   }
   zipDownloadIds.add(downloadId);
   const { url, added, missing } = response;
-  if (missing.length > 0) {
-    await showWarning(tabId, `${missing.length} of ${entries.length} photos missing`);
+  const warnings = [
+    ...(missing.length > 0 ? [`${missing.length} of ${entries.length} photos missing`] : []),
+    ...(clubMailFailed ? [CLUBMAIL_UNAVAILABLE] : []),
+  ];
+  if (warnings.length > 0) {
+    await showWarning(tabId, warnings.join(WARNING_SEPARATOR));
   } else {
     await clearBadge(tabId);
   }
@@ -250,8 +273,11 @@ export async function handleActionClick(tab) {
     const date = new Date();
     const userId = profileUserId(tab.url);
     if (userId) {
-      const [raw] = await extractAllWithProgress(tab.id, [[fetchProfileAlbums, [userId]]]);
-      return await downloadZip(tab.id, toAlbumZipRequest(raw, date));
+      const [albums, clubMail] = await extractAllWithProgress(tab.id, [
+        [fetchProfileAlbums, [userId]],
+        [fetchClubMailImages, [userId], CLUBMAIL_FAILED],
+      ]);
+      return await downloadZip(tab.id, toAlbumZipRequest(albums, date, clubMail));
     }
     const raw = await extractFromTab(tab.id, extractLightboxData);
     if (!raw) {

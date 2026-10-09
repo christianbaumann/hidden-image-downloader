@@ -1,0 +1,172 @@
+import { afterEach, beforeEach, describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { clubMailConversationId, fetchClubMailImages, toClubMailEntries } from '../../lib/clubmail.js';
+import { ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+
+describe('clubMailConversationId', () => {
+  test('puts the higher user id first', () => {
+    assert.equal(clubMailConversationId('6407991', '13140627'), 'conversation-wrapper-personal-13140627-6407991');
+  });
+
+  test('gives the same id for the reverse argument order', () => {
+    assert.equal(clubMailConversationId('13140627', '6407991'), clubMailConversationId('6407991', '13140627'));
+  });
+
+  test('compares numerically, not as strings', () => {
+    assert.equal(clubMailConversationId('900', '1000'), 'conversation-wrapper-personal-1000-900');
+  });
+});
+
+describe('fetchClubMailImages', () => {
+  const OWN_ID = '1000002';
+  const PARTNER_ID = '1000001';
+  const CACHE_KILLER = 'ck-123';
+  const HTTP_OK = 200;
+  const HTTP_UNAUTHORIZED = 401;
+  const originalFetch = globalThis.fetch;
+  let fetchCalls;
+  let responses;
+
+  const jsonResponse = (body, status = HTTP_OK) => ({ ok: status === HTTP_OK, status, json: async () => body });
+  const page = (messageList, pageUp = null) => () => jsonResponse({ content: { message_list: messageList, page_up_parameter: pageUp } });
+  const dataOf = (call) => JSON.parse(call.body.get('data'));
+
+  function stubDocument(dataset = { sessionUserId: OWN_ID, cacheKiller: CACHE_KILLER }) {
+    globalThis.document = { body: { dataset } };
+    globalThis.location = { origin: ORIGIN };
+  }
+
+  beforeEach(() => {
+    fetchCalls = [];
+    responses = [page([])];
+    globalThis.fetch = async (url, options) => {
+      fetchCalls.push({ url, ...options });
+      return responses[fetchCalls.length - 1]();
+    };
+    stubDocument();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    delete globalThis.document;
+    delete globalThis.location;
+  });
+
+  test('posts the first page with cache_killer and the conversation id', async () => {
+    await fetchClubMailImages(PARTNER_ID);
+
+    const [call] = fetchCalls;
+    assert.equal(call.url, '/clubmailv3/get_latest_message_list_of_conversation');
+    assert.equal(call.method, 'POST');
+    assert.deepEqual(call.headers, { 'x-requested-with': 'XMLHttpRequest' });
+    assert.ok(call.signal instanceof AbortSignal);
+    assert.equal(call.body.get('cache_killer'), CACHE_KILLER);
+    assert.deepEqual(dataOf(call), {
+      conversation_id: `conversation-wrapper-personal-${OWN_ID}-${PARTNER_ID}`,
+      offset_message_id: null,
+      limit_before: 100,
+      limit_after: 100,
+      inclusive: false,
+      allow_blank_personal: true,
+    });
+  });
+
+  test('follows page_up_parameter over three pages and returns all messages oldest first', async () => {
+    const older = { conversation_id: 'x', offset_message_id: '20' };
+    const oldest = { conversation_id: 'x', offset_message_id: '10' };
+    const messages = [1, 2, 3, 4, 5, 6].map((id) => textMessage(String(id)));
+    responses = [page(messages.slice(4), older), page(messages.slice(2, 4), oldest), page(messages.slice(0, 2))];
+
+    const result = await fetchClubMailImages(PARTNER_ID);
+
+    assert.equal(fetchCalls.length, 3);
+    assert.deepEqual(dataOf(fetchCalls[1]), older);
+    assert.deepEqual(dataOf(fetchCalls[2]), oldest);
+    assert.deepEqual(result, { origin: ORIGIN, messages });
+  });
+
+  test('an empty conversation gives no messages', async () => {
+    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { origin: ORIGIN, messages: [] });
+  });
+
+  test('a missing cache_killer fails without a request', async () => {
+    stubDocument({ sessionUserId: OWN_ID });
+
+    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  test('a missing session user id fails without a request', async () => {
+    stubDocument({ cacheKiller: CACHE_KILLER });
+
+    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  const failures = {
+    'HTTP 401': () => jsonResponse({}, HTTP_UNAUTHORIZED),
+    'answer without message_list': () => jsonResponse({ content: null }),
+    'fetch throws': () => { throw new TypeError('Failed to fetch'); },
+  };
+  for (const [name, response] of Object.entries(failures)) {
+    test(`${name} on a later page → { failed: true }`, async () => {
+      responses = [page([textMessage('1')], { offset_message_id: '1' }), response];
+
+      assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+    });
+  }
+
+  test('stays self-contained when serialised like executeScript does', async () => {
+    const serialised = new Function(`return (${fetchClubMailImages.toString()})`)();
+    responses = [page([attachmentMessage('1', 'a1')])];
+
+    assert.deepEqual(await serialised(PARTNER_ID), { origin: ORIGIN, messages: [attachmentMessage('1', 'a1')] });
+  });
+});
+
+describe('toClubMailEntries', () => {
+  const entries = (messages) => toClubMailEntries({ origin: ORIGIN, messages }, 'TestOwner', 'ClubMail');
+
+  test('names attachments <folder>/<owner>_<folder>_<NN>_<attach_id>.<ext> in message order', () => {
+    const result = entries([
+      attachmentMessage('11', 'a1'),
+      textMessage('12'),
+      attachmentMessage('13', 'a2', { fileType: '.PNG' }),
+    ]);
+
+    assert.deepEqual(result.map(({ name }) => name), [
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/TestOwner_ClubMail_02_a2.png',
+    ]);
+  });
+
+  test('builds an absolute download URL from the message and its sample id', () => {
+    const [entry] = entries([attachmentMessage('11', 'a1', { sampleId: 'conversation-sample-9' })]);
+
+    assert.equal(
+      entry.url,
+      `${ORIGIN}/clubmailv3/attachment/download/?attachment_id=a1&conversation_sample_id=conversation-sample-9&message_id=11`,
+    );
+  });
+
+  test('falls back to bin for an unusable file_type', () => {
+    const [entry] = entries([attachmentMessage('11', 'a1', { fileType: '../x' })]);
+
+    assert.equal(entry.name, 'ClubMail/TestOwner_ClubMail_01_a1.bin');
+  });
+
+  test('pads the number to three digits from 100 attachments', () => {
+    const result = entries(Array.from({ length: 100 }, (_, index) => attachmentMessage(String(index), `a${index}`)));
+
+    assert.equal(result[0].name, 'ClubMail/TestOwner_ClubMail_001_a0.jpg');
+    assert.equal(result[99].name, 'ClubMail/TestOwner_ClubMail_100_a99.jpg');
+  });
+
+  test('skips an attachment without attach_id', () => {
+    assert.deepEqual(entries([attachmentMessage('11', '')]), []);
+  });
+
+  test('gives no entries without attachments', () => {
+    assert.deepEqual(entries([textMessage('1')]), []);
+  });
+});

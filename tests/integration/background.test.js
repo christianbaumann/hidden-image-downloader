@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { albumRaw, listResult } from '../fixtures/album-api.js';
+import { ORIGIN, attachmentMessage } from '../fixtures/clubmail-api.js';
 
 const TAB = { id: 7 };
 const PROFILE_USER_ID = '1000001';
@@ -130,7 +131,11 @@ function determineFilename(item) {
 beforeEach(() => {
   mock.restoreAll();
   calls = [];
-  extracted = { extractLightboxData: VALID_DATA, fetchProfileAlbums: albumRaw() };
+  extracted = {
+    extractLightboxData: VALID_DATA,
+    fetchProfileAlbums: albumRaw(),
+    fetchClubMailImages: { origin: ORIGIN, messages: [] },
+  };
   executeScript = async ({ func }) => [{ result: extracted[func.name] }];
   zipDownloadIds = [];
   download = async ({ url }) => {
@@ -434,13 +439,80 @@ describe('profile ZIP', () => {
     await new Promise(setImmediate);
   });
 
-  test('a profile URL injects only the album fetcher, with the user id', async () => {
+  test('a profile URL injects the album and ClubMail fetchers, with the user id', async () => {
     await handleActionClick(PROFILE_TAB);
 
-    const [options] = callsNamed('executeScript');
-    assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums']);
-    assert.deepEqual(options.target, { tabId: PROFILE_TAB.id });
-    assert.deepEqual(options.args, [PROFILE_USER_ID]);
+    const options = callsNamed('executeScript');
+    assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages']);
+    for (const { target, args } of options) {
+      assert.deepEqual(target, { tabId: PROFILE_TAB.id });
+      assert.deepEqual(args, [PROFILE_USER_ID]);
+    }
+  });
+
+  test('runs both fetchers in parallel', async () => {
+    const started = [];
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    executeScript = async ({ func }) => {
+      started.push(func.name);
+      if (started.length === 2) {
+        release();
+      }
+      await gate;
+      return [{ result: extracted[func.name] }];
+    };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.deepEqual(started, ['fetchProfileAlbums', 'fetchClubMailImages']);
+  });
+
+  test('adds the ClubMail attachments to the album ZIP', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, messages: [attachmentMessage('11', 'a1')] };
+
+    await handleActionClick(PROFILE_TAB);
+
+    const build = callsNamed('sendMessage').at(-1);
+    assert.equal(build.entries.at(-1).name, 'ClubMail/TestOwner_ClubMail_01_a1.jpg');
+    assert.match(build.entries.at(-1).url, /^https:\/\/www\.joyclub\.de\/clubmailv3\/attachment\/download\/\?/);
+  });
+
+  test('a failed ClubMail fetch shows the amber warning, the album ZIP still downloads', async () => {
+    extracted.fetchClubMailImages = { failed: true };
+
+    const result = await handleActionClick(PROFILE_TAB);
+
+    assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
+    assert.equal(callsNamed('sendMessage').at(-1).reports[0].text, 'Lady (9 photos)\nClubMail: unavailable\n');
+    assert.equal(lastBadgeText(), '!');
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+  });
+
+  for (const [name, inject] of Object.entries({
+    'a failing ClubMail injection': () => { throw new Error('Frame was removed'); },
+    'a ClubMail injection without result': () => [{ result: undefined }],
+  })) {
+    test(`${name} warns but still downloads the album ZIP`, async () => {
+      executeScript = async ({ func }) => (func.name === 'fetchClubMailImages' ? inject() : [{ result: extracted[func.name] }]);
+
+      const result = await handleActionClick(PROFILE_TAB);
+
+      assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
+      assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+    });
+  }
+
+  test('missing photos and a failed ClubMail fetch share one tooltip', async () => {
+    extracted.fetchClubMailImages = { failed: true };
+    zipResponse = { url: BLOB_URL, added: 1, missing: ['https://image-user.feig-partner.de/x.jpg'] };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing; ClubMail unavailable');
   });
 
   test('builds the ZIP offscreen and downloads its blob URL', async () => {
@@ -484,7 +556,7 @@ describe('profile ZIP', () => {
     test(`takes the album path on ${new URL(url).pathname}`, async () => {
       await handleActionClick({ ...PROFILE_TAB, url });
 
-      assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums']);
+      assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages']);
       assert.equal(callsNamed('download')[0].url, BLOB_URL);
     });
   }
@@ -718,12 +790,12 @@ describe('ZIP progress badge', () => {
     };
   }
 
-  test('the API phase shows 0 % and then 10 % in blue', async () => {
+  test('the API phase shows 0 %, 5 % and then 10 % in blue', async () => {
     await handleActionClick(PROFILE_TAB);
 
-    assert.deepEqual(badgeTextsOf(PROFILE_TAB.id).slice(0, 3), ['', '0%', '10%']);
+    assert.deepEqual(badgeTextsOf(PROFILE_TAB.id).slice(0, 4), ['', '0%', '5%', '10%']);
     assert.equal(callsNamed('setBadgeBackgroundColor')[0].color, PROGRESS_COLOR);
-    assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list');
+    assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list and ClubMail');
   });
 
   test('photo progress shows the count and "n of m photos" in blue', async () => {
@@ -782,7 +854,7 @@ describe('ZIP progress badge', () => {
     extracted.fetchProfileAlbums = albumRaw();
     const oneAlbum = albumRaw({ list: listResult({ main: ['101'] }) });
     executeScript = async ({ func, target }) => [{
-      result: target.tabId === otherProfileTab.id ? oneAlbum : extracted[func.name],
+      result: target.tabId === otherProfileTab.id && func.name === 'fetchProfileAlbums' ? oneAlbum : extracted[func.name],
     }];
 
     await Promise.all([handleActionClick(PROFILE_TAB), handleActionClick(otherProfileTab)]);
@@ -792,6 +864,28 @@ describe('ZIP progress badge', () => {
     assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('1/1'), false);
     assert.ok(badgeTextsOf(otherProfileTab.id).includes('1/1'));
     assert.equal(badgeTextsOf(otherProfileTab.id).includes('1/2'), false);
+  });
+
+  test('a fetcher resolving after another one failed leaves the error badge alone', async () => {
+    let releaseClubMail;
+    const clubMailPending = new Promise((resolve) => {
+      releaseClubMail = resolve;
+    });
+    executeScript = async ({ func }) => {
+      if (func.name === 'fetchProfileAlbums') {
+        throw new Error('Cannot access contents of the page');
+      }
+      await clubMailPending;
+      return [{ result: extracted[func.name] }];
+    };
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+    releaseClubMail();
+    await new Promise(setImmediate);
+
+    assert.equal(lastBadgeText(), '!');
+    assert.match(lastTitle(), /JoyClub pages only/);
+    assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('5%'), false);
   });
 
   test('an unexpected error clears the progress badge before it propagates', async () => {

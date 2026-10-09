@@ -11,6 +11,7 @@ import {
   missingReport,
 } from '../../lib/profile.js';
 import { IMAGE_BASE, albumRaw, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import { ORIGIN, attachmentMessage } from '../fixtures/clubmail-api.js';
 
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
 const UUID_1 = '11111111-1111-4111-8111-111111111111';
@@ -238,6 +239,70 @@ describe('toAlbumZipRequest', () => {
     const request = toAlbumZipRequest(rawFor({ albums }), DATE);
     assert.equal(request.entries.length, 325);
     assert.equal(new Set(names(request)).size, 325);
+  });
+});
+
+describe('toAlbumZipRequest with ClubMail', () => {
+  const CLUBMAIL = { origin: ORIGIN, messages: [attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2')] };
+  const RESTRICTED_ONLY = { albums: [{ title: 'Lady', restricted: true, imageCount: 9 }] };
+
+  test('appends the attachments after the albums in a ClubMail folder', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, CLUBMAIL);
+
+    assert.deepEqual(names(request), [
+      `Fotos-von-uns/TestOwner_Fotos-von-uns_01_${keyOf(1)}.jpg`,
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/TestOwner_ClubMail_02_a2.jpg',
+    ]);
+    assert.equal(request.clubMailFailed, false);
+  });
+
+  test('without a conversation there is no ClubMail folder and no ClubMail line', () => {
+    const request = toAlbumZipRequest(albumRaw(), DATE, { origin: ORIGIN, messages: [] });
+
+    assert.deepEqual(folders(request), ['Fotos-von-uns', 'Aktuelles']);
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
+  });
+
+  test('a failed ClubMail fetch adds "ClubMail: unavailable" to skipped.txt and flags it', () => {
+    const request = toAlbumZipRequest(albumRaw(), DATE, { failed: true });
+
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\nClubMail: unavailable\n' }]);
+    assert.equal(request.clubMailFailed, true);
+  });
+
+  test('a malformed ClubMail result counts as failed', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN });
+
+    assert.equal(request.clubMailFailed, true);
+    assert.deepEqual(folders(request), ['Fotos-von-uns']);
+  });
+
+  test('a failed ClubMail fetch alone writes skipped.txt', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { failed: true });
+
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'ClubMail: unavailable\n' }]);
+  });
+
+  test('only restricted albums with attachments give a ZIP with only ClubMail', () => {
+    const request = toAlbumZipRequest(rawFor(RESTRICTED_ONLY), DATE, CLUBMAIL);
+
+    assert.deepEqual(folders(request), ['ClubMail']);
+  });
+
+  test('throws NothingToDownloadError when albums and ClubMail are both empty', () => {
+    assert.throws(() => toAlbumZipRequest(rawFor(RESTRICTED_ONLY), DATE, { origin: ORIGIN, messages: [] }), NothingToDownloadError);
+    assert.throws(() => toAlbumZipRequest(rawFor(RESTRICTED_ONLY), DATE, { failed: true }), NothingToDownloadError);
+  });
+
+  test('an album failure stays AlbumApiError even with attachments', () => {
+    assert.throws(() => toAlbumZipRequest({ failed: true }, DATE, CLUBMAIL), AlbumApiError);
+  });
+
+  test('an album titled ClubMail gets the folder ClubMail-2', () => {
+    const request = toAlbumZipRequest(rawFor({ albums: [{ title: 'ClubMail', ids: ['2'] }] }), DATE, CLUBMAIL);
+
+    assert.deepEqual(folders(request), ['ClubMail-2', 'ClubMail']);
   });
 });
 

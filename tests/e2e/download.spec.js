@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
 import { listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import { attachmentMessage } from '../fixtures/clubmail-api.js';
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
@@ -14,8 +15,12 @@ const ALBUM_LIST = listResult({
     { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
   ],
 });
+const CLUBMAIL_MESSAGES = [attachmentMessage('11', 'e2e-a1'), attachmentMessage('12', 'e2e-a2')];
+const RESTRICTED_ONLY_LIST = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
 const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
+// #e0a000 as getBadgeBackgroundColor reports it.
+const WARNING_COLOR_RGBA = [224, 160, 0, 255];
 const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_\\d{4}-\\d{2}-\\d{2}_\\d{6}';
 
 async function serve(page, url, html) {
@@ -74,22 +79,38 @@ async function downloadState(serviceWorker, id) {
   return (await downloadItem(serviceWorker, id))?.state;
 }
 
-// Waits for the download, then lists the entries of the ZIP on disk.
-async function zipEntries(serviceWorker, downloadId) {
+// Waits for the download, then opens the ZIP on disk.
+async function loadZip(serviceWorker, downloadId) {
   await expect.poll(() => downloadState(serviceWorker, downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');
   const { filename } = await downloadItem(serviceWorker, downloadId);
-  const zip = await JSZip.loadAsync(await readFile(filename));
-  return Object.keys(zip.files).sort();
+  return JSZip.loadAsync(await readFile(filename));
+}
+
+async function zipEntries(serviceWorker, downloadId) {
+  return Object.keys((await loadZip(serviceWorker, downloadId)).files).sort();
+}
+
+async function zipText(serviceWorker, downloadId, name) {
+  return (await loadZip(serviceWorker, downloadId)).file(name).async('string');
+}
+
+function badgeColor(serviceWorker) {
+  return serviceWorker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return chrome.action.getBadgeBackgroundColor({ tabId: tab.id });
+  });
 }
 
 function hasOffscreenDocument(serviceWorker) {
   return serviceWorker.evaluate(() => chrome.offscreen.hasDocument());
 }
 
-async function serveProfile(page, imageServer, { secondUuid = testUuid(2), graphStatus } = {}) {
+async function serveProfile(page, imageServer, {
+  secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus,
+} = {}) {
   const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
-  await routeJoyclubApi(page.context(), { list: ALBUM_LIST, sources, graphStatus });
+  await routeJoyclubApi(page.context(), { list, sources, graphStatus, messages, clubMailStatus });
   await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 }
 
@@ -140,10 +161,52 @@ test('shows the ZIP progress on the badge before clearing it', async ({ page, se
 
   await zipEntries(serviceWorker, result.downloadId);
   const texts = await recordedBadgeTexts(serviceWorker);
-  expect(texts.slice(0, 3)).toEqual(['', '0%', '10%']);
+  expect(texts.slice(0, 4)).toEqual(['', '0%', '5%', '10%']);
   expect(texts).toContain('1/2');
   expect(texts.at(-1)).toBe('');
   expect(await badgeState(serviceWorker)).toEqual({ text: '', title: 'Download hidden image' });
+});
+
+test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { messages: CLUBMAIL_MESSAGES });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+    'Aktuelles/',
+    'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
+    'ClubMail/',
+    'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
+    'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'Fotos-von-uns/',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'skipped.txt',
+  ]);
+  expect((await badgeState(serviceWorker)).text).toBe('');
+});
+
+test('a failing ClubMail API still saves the album ZIP and warns', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { messages: CLUBMAIL_MESSAGES, clubMailStatus: HTTP_SERVER_ERROR });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(await zipEntries(serviceWorker, result.downloadId)).not.toContain('ClubMail/');
+  expect(await zipText(serviceWorker, result.downloadId, 'skipped.txt')).toBe('Lady (9 photos)\nClubMail: unavailable\n');
+  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
+  expect(await badgeColor(serviceWorker)).toEqual(WARNING_COLOR_RGBA);
+});
+
+test('a profile with only restricted albums saves the ClubMail attachments', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { list: RESTRICTED_ONLY_LIST, messages: CLUBMAIL_MESSAGES });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+    'ClubMail/',
+    'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
+    'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'skipped.txt',
+  ]);
 });
 
 test('lists a missing album photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {
