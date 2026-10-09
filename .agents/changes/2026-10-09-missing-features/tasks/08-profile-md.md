@@ -6,7 +6,7 @@ dependencies:
 
 # Task 08: profile.md and profile.html in the profile ZIP
 
-**Status:** Done; awaiting the user's approval and a live check (see the last verification item).
+**Status:** Done, verified live (2026-10-09); awaiting the user's approval.
 
 The profile ZIP holds `profile.md` and `profile.html` at its root: the profile text, then one section per album with its description and the photo list (title, description, hashtags → relative file link).
 
@@ -39,7 +39,7 @@ The profile ZIP holds `profile.md` and `profile.html` at its root: the profile t
 
 ## Implementation notes
 
-* Hashtags: `getProfileAlbumImageCaptions` asks for `hashtag.byImageIdList { hashtags }` in the same request as titles and descriptions, as JoyClub's own `profileAlbumGetUserImage` does (captured and used live in the task 07 spike, `ops-album.json`/`probe2.js`). The element type is not confirmed, so non-string elements are dropped.
+* Hashtags: `getProfileAlbumImageCaptions` asks for `hashtag.byImageIdList { hashtags }` in the same request as titles and descriptions, as JoyClub's own `profileAlbumGetUserImage` does (captured and used live in the task 07 spike, `ops-album.json`/`probe2.js`). Live 2026-10-09: plain strings without `#` (41 hashtags on 2 profiles); non-string elements are still dropped.
 * Renderers live in `lib/profile-report.js`; `formatDate`, `formatTime` and `relativeUrl` are now exported from `lib/transcript.js`.
 * Fingerprint: `profileTextHash` = FNV-1a (`fingerprint` in `lib/incremental.js`) over the four text fields. It covers only the profile text: changed captions or album descriptions alone give "nothing new". Records saved before this change have no hash, so the first click after the update gives one ZIP with the profile files.
 * Not changed (review findings, accepted): single `\n` in `profile.md` is a soft Markdown break, as in the transcripts; `escapeMarkdown` does not escape setext/`---` lines (existing); photos that end up in `missing.txt` keep their (dead) link in the profile files (README says so).
@@ -52,4 +52,4 @@ The profile ZIP holds `profile.md` and `profile.html` at its root: the profile t
 * [x] A changed profile text alone gives a ZIP with the profile files; an unchanged one gives "nothing new" **Note:** Verified via integration test `a changed profile text alone zips the profile files, and an unchanged one is nothing new` and unit tests in `tests/unit/incremental.test.js`.
 * [x] The ClubMail-only ZIP has no profile files **Note:** Verified via unit test `toClubMailZipRequest` (report names) and E2E `an open conversation saves a ClubMail-only ZIP …` (exact entry list).
 * [x] `npm test` and `npm run test:e2e` pass **Note:** 580 unit/integration, 23 E2E.
-* [ ] Live: a real profile ZIP shows the profile text, captions and hashtags correctly (manual testing required: needs the user's session cookies)
+* [x] Live: a real profile ZIP shows the profile text, captions and hashtags correctly **Note:** Verified live 2026-10-09 (playwright-cli, user's cookies, scratchpad only) on a profile with BBCode, 3 album descriptions, 112 real titles, 1 photo description and 5 hashtags: 138 photos, 0 missing; `profile.md` has all four text sections and 6 albums; all 138 links in `profile.md` and 276 in `profile.html` resolve to files in the extracted ZIP; no leftover `[b]/[i]/[p]`, no placeholder titles, nothing remote; `profile.html` served from the extracted folder shows 138 images, none broken (screenshot checked). A second click gave "nothing new" with the hash in `saved:<id>`. macOS `/usr/bin/unzip` fails on the emoji album folder names (`Illegal byte sequence`); `ditto`/Archive Utility extract fine (not new to this task).
