@@ -16,10 +16,10 @@ Everything task 08 needs comes from the GraphQL API at `https://apiv2.joyclub.co
 |---|---|---|
 | Motto, profile text, "Das mögen wir (nicht)" | `profileDescription.byUserId(userId: Int!).description { motto description like dislike }` | text on 21 of 21 profiles: `description` 21, `motto` 17, `like` 17, `dislike` 15 |
 | Album description | `description` on `ProfileUnrestrictedRegularAlbumInterface` in `getProfileAlbumList` | 5 of 43 regular albums, on 2 profiles |
-| Photo title | `profileAlbum.image.byIdList(idList).itemList[].result.title` | 498 photos: 298 real titles (18 profiles), 175 `...`, 25 `Profilbild` |
+| Photo title | `profileAlbum.image.byIdList(idList).itemList[].result.title` | 498 photos: 298 real titles (on 18 of 21 profiles), 175 `...`, 25 `Profilbild` |
 | Photo description | same item, `description` | 1 of 498 |
 | Hashtags | `profileAlbum.image.hashtag.byImageIdList(idList)` | 28 of 498 |
-| Main album title | none: `mainAlbum` has no `title` in either `getProfileAlbumList` or `getMainAlbum` | (as known) |
+| Main album title and description | none: JoyClub asks for neither on `mainAlbum` (`getProfileAlbumList`, `getMainAlbum`); a `description` field there was not tried | see CLAUDE.md, main album title |
 
 ## Queries
 
@@ -35,7 +35,7 @@ query getProfileDescriptionByUserId($userId: Int!) { profileDescription { byUser
 
 Album description: add `description` to the `ProfileUnrestrictedRegularAlbumInterface` branch of the existing `LIST_QUERY` (JoyClub's own `ProfileRegularAlbumFragment` asks for it).
 
-Photo title and description (JoyClub's `profileAlbumGetUserImage`). `byIdList` sits on the same `profileAlbum.image` object as `source.sourceByImageIdList`, so the existing `SOURCES_QUERY` can fetch both in one request:
+Photo title and description (JoyClub's `profileAlbumGetUserImage`). `byIdList` sits on the same `profileAlbum.image` object as `source.sourceByImageIdList`, so one request can fetch both (confirmed live on 2 profiles, no errors, both lists in the same order). Task 08 should still send it as its own request, see below:
 
 ```graphql
 query getProfileAlbumImageSources($idList: [ID!]!) { profileAlbum { image {
@@ -59,10 +59,11 @@ Sample shapes (synthetic):
 ## Text format
 
 - Fields are raw text, empty string when unset (not `null`).
-- Line breaks are `\n` (in 42 fields).
-- BBCode in 7 fields, only `[p]`, `[b]`, `[i]` (with closing tags). No HTML.
+- Line breaks are `\n` (in 42 of the 70 non-empty fields).
+- BBCode in 7 of the 70 fields, only `[p]`, `[b]`, `[i]` (with closing tags). No HTML.
 - Smileys as `*name*` codes (`*kuss*`, `*zwinker*`, `*alarm*`, about 40 different).
-- JoyClub renders them through `POST /profile/beautify_text` (form: `cache_killer`, `data={"data":[<text>, …]}` → `content.data`, plus `use_miniprofile`, `parse_markdown`). That answer is HTML; for Markdown, a pure converter is simpler: `[b]` → `**`, `[i]` → `*`, `[p]` → paragraph, `*name*` stays as text, then escape Markdown in the rest.
+- JoyClub renders them via `POST /profile/beautify_text` (answers HTML); not needed.
+- Markdown conversion, in this order: escape the raw text with `escapeMarkdown` (`lib/clubmail-content.js`), so smileys come out as `\*kuss\*`; then `[b]…[/b]` → `**…**`, `[i]…[/i]` → `*…*`, `[p]…[/p]` → paragraph. Any other `[tag]` stays as text (only 7 fields were sampled).
 - Placeholder photo titles: `...` and `Profilbild` (JoyClub's default for the avatar photo). Earlier research also saw `Keine Beschreibung angegeben.` as `alt` text in the DOM; the API never returned it.
 
 ## DOM (for reference, not needed)
@@ -75,13 +76,17 @@ Sample shapes (synthetic):
 ## Limits
 
 - Restricted albums: no ids, so no titles; they stay in `skipped.txt` as before.
-- One more request per click for the profile text; the titles ride along with the existing sources request.
 - Not checked: profiles whose text is hidden from the viewer. All 21 answered `ProfileDescription/Description`; an error branch (`ProfileByUserIdErrorResponse`, `BaseError`) exists and must leave the section out.
 - Only `www.joyclub.de` was checked.
 - Photo `description` was non-empty on a single photo of one profile, so its format is confirmed once only; album descriptions on 2 profiles, everything else on 18 or more.
 
 ## Consequences for task 08
 
-- Extend `fetchProfileAlbums`: profile text query, `description` in `LIST_QUERY`, `byIdList { title description }` in `SOURCES_QUERY`. It stays self-contained.
+- `fetchProfileAlbums` stays self-contained and gets:
+  - `DESCRIPTION_QUERY` (operation `getProfileDescriptionByUserId`), sent with `{ userId: Number(userId) }`: the variable is `Int!` and `profileUserId` returns a string, which GraphQL rejects. It does not depend on the album list, so it runs in parallel with `loadAlbums()`.
+  - `description` in the unrestricted branch of `LIST_QUERY`.
+  - `CAPTIONS_QUERY` (`byIdList { title description }`) as its own request, returned as `captions` next to `sources`.
+- `graph()` throws on any `errors`, and `fetchProfileAlbums` then fails the whole click. The profile text and caption requests therefore get their own try/catch and answer `null` on failure, so a missing text leaves its section out instead of failing the ZIP. That costs one more request than putting `byIdList` into `SOURCES_QUERY`, but a caption error can't stop the photo download.
+- A caption result other than `ProfileAlbumImageItemResultSuccess` means no title, as `sourceUrls` treats non-success sources. The same goes for a `description` that is not `Description` (`BaseError`, `ProfileByUserIdErrorResponse`).
 - `profile.md`: motto, profile text, likes, dislikes (empty ones left out); per album: title, description, then the photos with title (placeholders `...`/`Profilbild` dropped) and description, each linked to its file.
 - Hashtags exist but are not in the design; left for later.

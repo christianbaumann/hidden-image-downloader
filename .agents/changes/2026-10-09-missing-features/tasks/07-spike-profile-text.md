@@ -26,3 +26,10 @@ A research note states which profile text sections and which album and photo tex
 
 * [x] The note names concrete selectors or GraphQL fields, each confirmed on at least two live profiles **Note:** profile text on 21 profiles, photo titles on 18, album descriptions on 2, DOM selectors on 2; exception: photo `description` was set on one photo only (stated in the note)
 * [x] No real personal data in the repo (only sanitised samples) **Note:** the note holds counts, field names and synthetic samples only; captures and downloads stayed in the scratchpad
+
+## Verification run (2026-10-09)
+
+* The queries proposed for task 08 (`LIST_QUERY` with album `description`, `byIdList` + `source` in one request) sent live on 2 profiles: no errors, every photo has a title result and a source, same order.
+* Review by subagent: no personal data, counts consistent. Fixed in the note: `Int!` needs `Number(userId)`; profile text and captions get their own request and try/catch so they can't fail the ZIP; the profile text request runs in parallel with the album list; Markdown conversion escapes first; denominators added; main album description marked as not tried.
+
+**Approved** after verification (all items automated; no manual step left).
