@@ -16,13 +16,13 @@ A research note states which profile text sections and which album and photo tex
 
 ## Work
 
-* [ ] Open real profiles with the user's session (playwright-cli, cookies, scratchpad only)
-* [ ] Record the profile page DOM sections with text ("Über mich" and similar) and their selectors; note client-side rendering delays
-* [ ] Search JoyClub's frontend bundle for GraphQL fields of album description and image title/caption; test them against the live API
-* [ ] Write `../research-07-profile-text.md`: sections, selectors, queries, sample shapes (sanitised), limits
-* [ ] If nothing usable exists: note it in `.agents/backlog.md` and mark task 08 as dropped
+* [x] Open real profiles with the user's session (playwright-cli, cookies, scratchpad only)
+* [x] Record the profile page DOM sections with text ("Über mich" and similar) and their selectors; note client-side rendering delays
+* [x] Search JoyClub's frontend bundle for GraphQL fields of album description and image title/caption; test them against the live API **Note:** captured from JoyClub's own requests on a profile and an album page instead of searching the bundle: same source, full queries
+* [x] Write `../research-07-profile-text.md`: sections, selectors, queries, sample shapes (sanitised), limits
+* [x] If nothing usable exists: note it in `.agents/backlog.md` and mark task 08 as dropped **Note:** not needed, all fields exist; task 08 stays
 
 ## Verification
 
-* [ ] The note names concrete selectors or GraphQL fields, each confirmed on at least two live profiles
-* [ ] No real personal data in the repo (only sanitised samples)
+* [x] The note names concrete selectors or GraphQL fields, each confirmed on at least two live profiles **Note:** profile text on 21 profiles, photo titles on 18, album descriptions on 2, DOM selectors on 2; exception: photo `description` was set on one photo only (stated in the note)
+* [x] No real personal data in the repo (only sanitised samples) **Note:** the note holds counts, field names and synthetic samples only; captures and downloads stayed in the scratchpad
