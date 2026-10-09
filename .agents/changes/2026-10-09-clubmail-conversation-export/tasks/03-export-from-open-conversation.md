@@ -59,4 +59,5 @@ A click on an open ClubMail conversation saves `<Partner>_ClubMail_<timestamp>.z
   * Transcripts match the raw API: 58/54 messages, 8/0 replies (8 blockquotes), 4/5 http(s) links kept, smileys as text (no remote `src`), 3 messages without `from_user_name` still attributed.
   * `conversation.html` opened from `file://` with all network aborted: 5/5 and 9/9 images load, 0 requests attempted; layout and reply quote checked on screenshots.
   * Unread: the UI's own `read_conversation` call on opening the page was aborted; the extension click sent none (0 after the click), and the unread conversation stayed unread.
-  * Not checkable here: the ZIP name on disk in a normal Chrome (Playwright saves under GUID names).
+  * ZIP name on disk in a normal Chrome: confirmed by the user on 2026-10-09.
+  * Read state: the user confirmed on 2026-10-09 that unread conversations must stay unread, as implemented.

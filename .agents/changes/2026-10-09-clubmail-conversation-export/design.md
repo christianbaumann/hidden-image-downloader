@@ -177,7 +177,7 @@ Checked against a real session (4 read conversations, 67 messages) with Playwrig
 
 - **Decision:** The export does not call `read_conversation`. An unread conversation stays unread, as the README promises today.
 - **Reason:** Exporting should not change the account's state.
-- **Trade-offs:** Open: the user wrote "make sure to mark unreads as read". It is not clear if that was about the test session or the export. If the export should mark conversations read, this decision and the README change.
+- **Trade-offs:** None. Confirmed by the user on 2026-10-09: unread conversations must stay unread.
 
 ### Failure and empty cases
 
