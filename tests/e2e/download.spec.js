@@ -320,7 +320,8 @@ test('lists a missing album photo in missing.txt and log.txt and warns', async (
   const [missingUrl] = (await zipText(serviceWorker, result, 'missing.txt')).split('\n');
   const log = await zipText(serviceWorker, result, 'log.txt');
   expect(log).toContain('path: profile');
-  expect(log).toContain(`photo: missing  status=${HTTP_NOT_FOUND}  url=${missingUrl.split('?')[0]}\n`);
+  expect(log).toContain(`photo: missing  entry=Aktuelles/TestOwner_Aktuelles_01_00000000.jpg  `);
+  expect(log).toContain(`status=${HTTP_NOT_FOUND}  url=${missingUrl.split('?')[0]}\n`);
   const badge = await badgeState(serviceWorker);
   expect(badge.text).toBe('!');
   expect(badge.title).toContain('1 of 2 photos missing');

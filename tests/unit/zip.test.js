@@ -358,8 +358,8 @@ describe('buildZip log.txt', () => {
     const lines = text.split('\n').filter((line) => line.startsWith('+'));
     assert.equal(lines[0], '+5 ms  path: profile');
     assert.deepEqual(lines.slice(1).map((line) => line.replace(/^\+\d+ ms {2}/, '')), [
-      ...Array(FETCH_RETRIES).fill(`photo: retry  status=${HTTP_UNAVAILABLE}  url=${URL_B}`),
-      `photo: missing  status=${HTTP_UNAVAILABLE}  url=${URL_B}`,
+      ...Array(FETCH_RETRIES).fill(`photo: retry  entry=Owner_02_b.jpg  status=${HTTP_UNAVAILABLE}  url=${URL_B}`),
+      `photo: missing  entry=Owner_02_b.jpg  status=${HTTP_UNAVAILABLE}  url=${URL_B}`,
     ]);
     assert.doesNotMatch(text, /secret/);
     assert.equal(logLines.length, MAX_ATTEMPTS);
@@ -368,7 +368,8 @@ describe('buildZip log.txt', () => {
   it('logs the error name of a photo whose fetch throws', async () => {
     const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new TypeError('Failed to fetch') });
     const { logLines } = await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay });
-    assert.deepEqual(logLines.at(-1), { ms: logLines.at(-1).ms, step: 'photo: missing', status: undefined, reason: 'TypeError', url: URL_B });
+    assert.deepEqual({ ...logLines.at(-1), ms: 0 }, {
+      ms: 0, step: 'photo: missing', entry: ENTRIES[1].name, status: undefined, reason: 'TypeError', url: URL_B });
   });
 
   it('writes log.txt for a warning without missing photos', async () => {

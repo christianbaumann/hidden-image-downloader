@@ -41,6 +41,7 @@ test('renderLog writes a header and one line per step with only the given fields
   const log = createLog(clock());
   log.add('path: lightbox', { url: 'https://www.joyclub.de/fotos/feed/?page=2' });
   log.add('probe', { status: 404, url: 'https://cdn.joyclub.de/a.jpg?c=1' });
+  log.add('photo: missing', { entry: 'Owner/Owner_01_a.jpg', reason: 'TypeError' });
   log.add('error: UnsupportedPageError', { reason: 'works on JoyClub pages only' });
 
   assert.equal(renderLog(log), [
@@ -49,7 +50,8 @@ test('renderLog writes a header and one line per step with only the given fields
     '',
     '+25 ms  path: lightbox  url=https://www.joyclub.de/fotos/feed/',
     '+50 ms  probe  status=404  url=https://cdn.joyclub.de/a.jpg',
-    '+75 ms  error: UnsupportedPageError  reason=works on JoyClub pages only',
+    '+75 ms  photo: missing  entry=Owner/Owner_01_a.jpg  reason=TypeError',
+    '+100 ms  error: UnsupportedPageError  reason=works on JoyClub pages only',
     '',
   ].join('\n'));
 });
