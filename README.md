@@ -10,6 +10,10 @@ It runs in Chrome only and on JoyClub only (`www.joyclub.de`, `www.joyclub.com`)
 2. Open a photo in the JoyClub lightbox.
 3. Click the toolbar icon. The image is saved to the default download folder as `<Owner>_<photo-id>.<ext>`, with `<photo-id>` as in the profile ZIP (first 8 characters of the photo's ID, else JoyClub's photo number). When album title and position are known, the name is `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as the photo's name in the profile ZIP. A repeat download gets Chrome's usual ` (1)`. A `.webp` image is saved as the site's `.jpg` version; if that is missing or does not answer within 5 s, the `.webp` is saved instead.
 
+### Context menu: "Save hidden image"
+
+Right-click any image on a JoyClub page (album grid, profile cards, lightbox, feed, photo detail) and choose "Save hidden image". It saves the image below the transparent overlay, not the overlay GIF: the first element under the pointer with a background image, else the widest entry of a `srcset`. The name follows the rules above. On an album page (`/profile/fotoalbum/…`) the name includes album title and position, `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as in the profile ZIP. The menu shows only on JoyClub pages. In a tab that was open before the extension was installed or reloaded, the badge says "reload the page and try again".
+
 ### Profile photos
 
 On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…`) or one of its albums (`/profile/fotoalbum/…`), the click saves every photo of every album you can see as one ZIP, `<Owner>.zip`. Everything in the ZIP sits in one top folder named like the ZIP (`<Owner>/`), so it extracts into that folder with every unzip tool. A second download of the same profile gets Chrome's usual `<Owner> (1).zip`. This applies even with a lightbox open there; use the lightbox on other pages for single photos.
@@ -31,7 +35,7 @@ You need to be logged in on the domain you are browsing (`joyclub.de` or `joyclu
 
 ### Errors
 
-If nothing can be downloaded (other site, neither a lightbox nor profile photos, album list unavailable, ClubMail unavailable on a conversation page, no image address, download failed), the icon shows a red `!` badge and its tooltip names the reason. The badge only reports failures before the download starts; later network errors show up in Chrome's download list only.
+If nothing can be downloaded (other site, neither a lightbox nor profile photos, album list unavailable, ClubMail unavailable on a conversation page, no image address (also: no image below the right-click), page not ready for the context menu, download failed), the icon shows a red `!` badge and its tooltip names the reason. The badge only reports failures before the download starts; later network errors show up in Chrome's download list only.
 
 A red badge also saves `hidden-image-downloader-log.txt` to the download folder, as does an unexpected error. It lists the steps of the click (page type, album list and ClubMail results, `.jpg` probe status, download) with the time since the click and the reason it failed. It holds no tokens, cookies or message text, and URLs without their query. A click that succeeds saves no log.
 
@@ -48,5 +52,6 @@ Manual checks (they need a real JoyClub session, which the tests cannot have):
 - Click on a real conversation with replies, smileys and links. Open `conversation.html` offline: the images show, replies are quoted, smileys are text, links work.
 - Export an unread conversation: it stays unread in JoyClub.
 - The ZIP on disk has the requested name (Playwright saves downloads under GUID names).
+- "Save hidden image" shows in Chrome's context menu on JoyClub pages and not on other sites, and saves the right image on a real album page, profile, feed and photo detail page (Playwright cannot open Chrome's context menu; the tests call its handler).
 
 `vendor/jszip.min.js` is JSZip from npm, pinned in `package.json`. To update it, bump the version, run `npm install`, then `cp node_modules/jszip/dist/jszip.min.js vendor/jszip.min.js` and restore its two header lines. `tests/unit/vendor-jszip.test.js` checks that the copy matches.

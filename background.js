@@ -1,4 +1,5 @@
 import { clubMailConversationIds, fetchClubMailImages, withReason } from './lib/clubmail.js';
+import { toHiddenImageCandidates } from './lib/hidden-image.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import { LOG_FILENAME, createLog, logDataUrl, renderLog } from './lib/log.js';
 import {
@@ -26,6 +27,12 @@ const INJECTION_FAILED_REASON = 'extension could not run on the page';
 const CLUBMAIL_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
 const ZIP_EXTENSION = '.zip';
 const ZIP_WITHOUT_URL_REASON = 'no ZIP in the answer';
+const MENU_ID = 'save-hidden-image';
+const MENU_TITLE = 'Save hidden image';
+const MENU_CONTEXTS = ['all'];
+const JOYCLUB_PAGES = ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'];
+// Same value as DESCRIBE_ACTION in content.js.
+const DESCRIBE_IMAGE_ACTION = 'describe-hidden-image';
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -42,6 +49,10 @@ class DownloadFailedError extends Error {
   name = 'DownloadFailedError';
 }
 
+class PageNotReadyError extends Error {
+  name = 'PageNotReadyError';
+}
+
 const ERROR_REASONS = {
   UnsupportedPageError: 'works on JoyClub pages only',
   NothingToDownloadError: 'no lightbox image or profile photos found',
@@ -49,6 +60,7 @@ const ERROR_REASONS = {
   ClubMailApiError: CLUBMAIL_UNAVAILABLE,
   NoImageUrlError: 'image address not found',
   DownloadFailedError: 'download failed',
+  PageNotReadyError: 'reload the page and try again',
 };
 
 // The tab may close mid-click; its badge is gone then anyway.
@@ -304,6 +316,28 @@ async function downloadLog(log) {
   }
 }
 
+async function saveSingleImage(candidates, log) {
+  const { url, filename } = await firstAvailable(candidates, log);
+  const downloadId = await startDownload(url, filename);
+  log.add('download started', { url });
+  return { url, filename, downloadId };
+}
+
+// Known errors: red badge and log, answer null. Unexpected errors: log, then rethrow.
+async function reportFailure(tabId, log, error) {
+  const reason = ERROR_REASONS[error.name];
+  // Unexpected errors log only their name: their message may hold page data.
+  log.add(`error: ${error.name}`, { reason: reason && withReason(reason, error.reason) });
+  if (!reason) {
+    await clearBadge(tabId);
+    await downloadLog(log);
+    throw error;
+  }
+  await showError(tabId, withReason(reason, error.reason));
+  await downloadLog(log);
+  return null;
+}
+
 export async function handleActionClick(tab) {
   await clearBadge(tab.id);
   const log = createLog();
@@ -332,27 +366,47 @@ export async function handleActionClick(tab) {
     if (!raw) {
       throw new NothingToDownloadError();
     }
-    const { url, filename } = await firstAvailable(toDownloadCandidates(raw), log);
-    const downloadId = await startDownload(url, filename);
-    log.add('download started', { url });
-    return { url, filename, downloadId };
+    return await saveSingleImage(toDownloadCandidates(raw), log);
   } catch (error) {
-    const reason = ERROR_REASONS[error.name];
-    // Unexpected errors log only their name: their message may hold page data.
-    log.add(`error: ${error.name}`, { reason: reason && withReason(reason, error.reason) });
-    if (!reason) {
-      await clearBadge(tab.id);
-      await downloadLog(log);
-      throw error;
-    }
-    await showError(tab.id, withReason(reason, error.reason));
-    await downloadLog(log);
-    return null;
+    return reportFailure(tab.id, log, error);
   }
 }
 
+// The content script is missing in tabs opened before the extension was installed or reloaded.
+async function describeHiddenImage(tabId, frameId) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { action: DESCRIBE_IMAGE_ACTION }, { frameId });
+  } catch {
+    throw new PageNotReadyError();
+  }
+}
+
+export async function handleMenuClick(info, tab) {
+  if (info.menuItemId !== MENU_ID) {
+    return null;
+  }
+  await clearBadge(tab.id);
+  const log = createLog();
+  try {
+    log.add('path: context menu', { url: tab.url });
+    const raw = await describeHiddenImage(tab.id, info.frameId);
+    return await saveSingleImage(toHiddenImageCandidates(raw), log);
+  } catch (error) {
+    return reportFailure(tab.id, log, error);
+  }
+}
+
+function createMenu() {
+  chrome.contextMenus.create({
+    id: MENU_ID, title: MENU_TITLE, contexts: MENU_CONTEXTS, documentUrlPatterns: JOYCLUB_PAGES,
+  });
+}
+
 chrome.action.onClicked.addListener(handleActionClick);
+chrome.runtime.onInstalled.addListener(createMenu);
+chrome.contextMenus.onClicked.addListener(handleMenuClick);
 chrome.downloads.onDeterminingFilename.addListener(suggestOwnFilename);
 chrome.downloads.onChanged.addListener(onDownloadChanged);
 chrome.runtime.onMessage.addListener(onZipProgress);
 globalThis.handleActionClick = handleActionClick;
+globalThis.handleMenuClick = handleMenuClick;
