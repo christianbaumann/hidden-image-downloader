@@ -17,16 +17,22 @@ A lightbox image saved from the toolbar is named like its ZIP entry, `<Owner>_<A
 
 ## Work
 
-* [ ] Research with a live session which lightbox pages expose album title and position (profile album, `/profile/fotoalbum/…`, party albums, feed); write the findings to `../research-04-lightbox-context.md`
-* [ ] Extend `extractLightboxData` with album title, position and count, where the page has them
-* [ ] Replace the single-image name in `buildFilename` with the new scheme, sharing the ZIP entry's stem logic (`photoKey`, `folderSegment`, `entryNumber`) instead of duplicating it
-* [ ] Remove helpers left unused (e.g. `formatTimestamp`, `pickTitle`) if nothing else uses them
-* [ ] Update unit tests in `tests/unit/filename.test.js` and `tests/unit/lightbox.test.js`; update the E2E filename assertion
-* [ ] README "Usage" and `CLAUDE.md` describe the new name
+* [ ] (manual: live session required) Research with a live session which lightbox pages expose album title and position (profile album, `/profile/fotoalbum/…`, party albums, feed); write the findings to `../research-04-lightbox-context.md`
+  * **Note:** No session available. Findings from the sanitised fixtures only are in `../research-04-lightbox-context.md`; the live check of profile album, `/profile/fotoalbum/…`, party albums and feed is still open.
+* [ ] (manual: live session required) Extend `extractLightboxData` with album title, position and count, where the page has them
+  * **Note:** No page with a known album/counter selector (see research). `toDownloadCandidates` and `buildFilename` already take `album`, `position`, `count`; only the selectors are missing. `extractLightboxData` no longer reads the title.
+* [x] Replace the single-image name in `buildFilename` with the new scheme, sharing the ZIP entry's stem logic (`photoKey`, `folderSegment`, `entryNumber`) instead of duplicating it
+* [x] Remove helpers left unused (e.g. `formatTimestamp`, `pickTitle`) if nothing else uses them
+* [x] Update unit tests in `tests/unit/filename.test.js` and `tests/unit/lightbox.test.js`; update the E2E filename assertion
+* [x] README "Usage" and `CLAUDE.md` describe the new name
 
 ## Verification
 
-* [ ] Lightbox on an album page with known position → `<Owner>_<Album>_<nn>_<photo-id>.jpg`, matching the name of the same photo in the profile ZIP
-* [ ] Lightbox without album context → `<Owner>_<photo-id>.jpg`
-* [ ] `.webp` fallback keeps the same stem with `.webp`
-* [ ] `npm test` and `npm run test:e2e` pass
+* [ ] (manual testing required) Lightbox on an album page with known position → `<Owner>_<Album>_<nn>_<photo-id>.jpg`, matching the name of the same photo in the profile ZIP
+  * **Note:** Naming verified via `tests/unit/lightbox.test.js` › "names an album photo like its entry in the profile ZIP" and `tests/unit/filename.test.js` › "buildFilename: album photo …". Reading album and position from a live page needs the open selectors.
+* [x] Lightbox without album context → `<Owner>_<photo-id>.jpg`
+  * **Note:** Verified via `tests/e2e/download.spec.js` › "downloads the lightbox image as <Owner>_<photo-id>.jpg" and `tests/unit/lightbox.test.js` › "takes the photo key from a UUID image url over data-photo"
+* [x] `.webp` fallback keeps the same stem with `.webp`
+  * **Note:** Verified via `tests/e2e/download.spec.js` › "falls back to the webp when the server has no jpg" and `tests/unit/lightbox.test.js` › "offers the jpg first, then the original webp, with one stem"
+* [x] `npm test` and `npm run test:e2e` pass
+  * **Note:** Verified via `npm test` (430 pass) and `npm run test:e2e` (13 pass)

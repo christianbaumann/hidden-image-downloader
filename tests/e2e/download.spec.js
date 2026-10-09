@@ -30,7 +30,7 @@ const DOWNLOAD_TIMEOUT_MS = 10000;
 const WARNING_COLOR_RGBA = [224, 160, 0, 255];
 // #d00000 as getBadgeBackgroundColor reports it.
 const ERROR_COLOR_RGBA = [208, 0, 0, 255];
-const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_\\d{4}-\\d{2}-\\d{2}_\\d{6}';
+const EXPECTED_STEM = 'TestOwner_1001';
 
 async function serve(page, url, html) {
   await page.route(url, (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
@@ -132,12 +132,12 @@ async function serveProfile(page, imageServer, {
   await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 }
 
-test('downloads the lightbox image as jpg with owner and title in the filename', async ({ page, serviceWorker, imageServer }) => {
+test('downloads the lightbox image as <Owner>_<photo-id>.jpg', async ({ page, serviceWorker, imageServer }) => {
   await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 
   const result = await clickAction(serviceWorker);
 
-  expect(result.filename).toMatch(new RegExp(`^${EXPECTED_STEM}\\.jpg$`));
+  expect(result.filename).toBe(`${EXPECTED_STEM}.jpg`);
   expect(result.url).toBe(`${imageServer.base}/image.jpg`);
   await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');
@@ -148,7 +148,7 @@ test('falls back to the webp when the server has no jpg', async ({ page, service
 
   const result = await clickAction(serviceWorker);
 
-  expect(result.filename).toMatch(new RegExp(`^${EXPECTED_STEM}\\.webp$`));
+  expect(result.filename).toBe(`${EXPECTED_STEM}.webp`);
   expect(result.url).toBe(`${imageServer.base}/only-webp.webp`);
   await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');

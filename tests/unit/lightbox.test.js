@@ -7,7 +7,8 @@ import {
   toDownloadCandidates,
   UnsupportedPageError,
 } from '../../lib/lightbox.js';
-import { buildFilename } from '../../lib/filename.js';
+import { toAlbumZipRequest } from '../../lib/profile.js';
+import { IMAGE_BASE, albumRaw, testUuid } from '../fixtures/album-api.js';
 
 const BASE_URL = 'https://www.joyclub.de/profile/123.html';
 const IMAGE_URL = 'https://x/a.webp?c=1';
@@ -68,46 +69,52 @@ describe('parseBackgroundImageUrl', () => {
 });
 
 describe('toDownloadCandidates', () => {
-  const date = new Date(2026, 9, 8, 17, 45, 0);
   const raw = {
     style: 'background-image: url("https://x/img/a.webp?c=1"); opacity: 1',
-    title: 'Profilbild',
     owner: 'BitPaerchen',
     photoId: '4711',
     pageUrl: BASE_URL,
   };
+  const uuidStyle = `background-image: url("${IMAGE_BASE}/${testUuid(2)}/orig/image_1920_k.webp?cache=c")`;
 
-  test('offers the jpg first, then the original webp', () => {
-    const candidates = toDownloadCandidates(raw, date);
+  test('offers the jpg first, then the original webp, with one stem', () => {
+    const candidates = toDownloadCandidates(raw);
     assert.deepEqual(candidates, [
-      { url: 'https://x/img/a.jpg?c=1', filename: 'BitPaerchen_Profilbild_2026-10-08_174500.jpg' },
-      { url: 'https://x/img/a.webp?c=1', filename: 'BitPaerchen_Profilbild_2026-10-08_174500.webp' },
+      { url: 'https://x/img/a.jpg?c=1', filename: 'BitPaerchen_4711.jpg' },
+      { url: 'https://x/img/a.webp?c=1', filename: 'BitPaerchen_4711.webp' },
     ]);
   });
 
-  test('builds filenames with buildFilename', () => {
-    const [first] = toDownloadCandidates(raw, date);
-    const expected = buildFilename({ owner: raw.owner, title: raw.title, photoId: raw.photoId, url: first.url, date });
-    assert.equal(first.filename, expected);
+  test('takes the photo key from a UUID image url over data-photo', () => {
+    const [first, second] = toDownloadCandidates({ ...raw, style: uuidStyle });
+    assert.equal(first.filename, 'BitPaerchen_00000002.jpg');
+    assert.equal(second.filename, 'BitPaerchen_00000002.webp');
+  });
+
+  test('names an album photo like its entry in the profile ZIP', () => {
+    const [first] = toDownloadCandidates({ ...raw, owner: 'TestOwner', style: uuidStyle, album: 'Aktuelles', position: 1, count: 1 });
+    const { entries } = toAlbumZipRequest(albumRaw(), new Date());
+    const zipEntry = entries.find(({ name }) => name.startsWith('Aktuelles/'));
+    assert.equal(`Aktuelles/${first.filename}`, zipEntry.name);
   });
 
   test('offers only the original for a jpg', () => {
-    const candidates = toDownloadCandidates({ ...raw, style: 'background-image: url("https://x/img/a.jpg")' }, date);
+    const candidates = toDownloadCandidates({ ...raw, style: 'background-image: url("https://x/img/a.jpg")' });
     assert.deepEqual(candidates.map(({ url }) => url), ['https://x/img/a.jpg']);
   });
 
   test('throws NoLightboxError for null', () => {
-    assert.throws(() => toDownloadCandidates(null, date), NoLightboxError);
-    assert.throws(() => toDownloadCandidates(undefined, date), NoLightboxError);
+    assert.throws(() => toDownloadCandidates(null), NoLightboxError);
+    assert.throws(() => toDownloadCandidates(undefined), NoLightboxError);
   });
 
   test('throws NoImageUrlError for a style without url', () => {
-    assert.throws(() => toDownloadCandidates({ ...raw, style: 'opacity: 1' }, date), NoImageUrlError);
+    assert.throws(() => toDownloadCandidates({ ...raw, style: 'opacity: 1' }), NoImageUrlError);
   });
 
-  test('falls back when owner and title are missing', () => {
-    const [first] = toDownloadCandidates({ ...raw, owner: null, title: '' }, date);
-    assert.equal(first.filename, 'unknown_photo-4711_2026-10-08_174500.jpg');
+  test('falls back when owner and photo id are missing', () => {
+    const [first] = toDownloadCandidates({ ...raw, owner: null, photoId: null });
+    assert.equal(first.filename, 'unknown_image.jpg');
   });
 });
 

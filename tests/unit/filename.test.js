@@ -1,19 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAX_TITLE_LENGTH,
   sanitizeSegment,
-  formatTimestamp,
   extensionFromUrl,
-  pickTitle,
   buildFilename,
+  photoStem,
   folderSegment,
   reserveUniqueName,
 } from '../../lib/filename.js';
 
 const IMAGE_URL = 'https://cdn.example.com/photos/image_1920_x.webp?cache=abc';
-const DATE = new Date(2026, 9, 8, 17, 45, 0);
-const TS = '2026-10-08_174500';
 
 test('sanitizeSegment keeps plain text', () => {
   assert.equal(sanitizeSegment('Profilbild'), 'Profilbild');
@@ -94,24 +90,6 @@ test('sanitizeSegment returns empty string for only forbidden chars', () => {
   assert.equal(sanitizeSegment('///'), '');
 });
 
-test('formatTimestamp formats local time', () => {
-  assert.equal(formatTimestamp(DATE), TS);
-});
-
-test('formatTimestamp zero-pads single digits', () => {
-  assert.equal(formatTimestamp(new Date(2026, 0, 5, 3, 4, 5)), '2026-01-05_030405');
-});
-
-test('formatTimestamp handles 00:00:00 and 23:59:59', () => {
-  assert.equal(formatTimestamp(new Date(2026, 9, 8, 0, 0, 0)), '2026-10-08_000000');
-  assert.equal(formatTimestamp(new Date(2026, 9, 8, 23, 59, 59)), '2026-10-08_235959');
-});
-
-test('formatTimestamp handles Dec 31 and Jan 1', () => {
-  assert.equal(formatTimestamp(new Date(2025, 11, 31, 12, 0, 0)), '2025-12-31_120000');
-  assert.equal(formatTimestamp(new Date(2026, 0, 1, 12, 0, 0)), '2026-01-01_120000');
-});
-
 test('extensionFromUrl reads extension ignoring query', () => {
   assert.equal(extensionFromUrl(IMAGE_URL), 'webp');
 });
@@ -142,66 +120,47 @@ test('extensionFromUrl falls back to jpg for invalid URL', () => {
   assert.equal(extensionFromUrl('not a url'), 'jpg');
 });
 
-test('pickTitle returns title', () => {
-  assert.equal(pickTitle('Profilbild', '1001'), 'Profilbild');
+test('photoStem joins owner, folder, number and key', () => {
+  assert.equal(photoStem({ owner: 'O', folder: 'Album', number: '03', key: 'abcd1234' }), 'O_Album_03_abcd1234');
 });
 
-test('pickTitle falls back to photo id for placeholder/empty titles', () => {
-  for (const title of ['...', '…', '   ', '', null]) {
-    assert.equal(pickTitle(title, '1001'), 'photo-1001', `title ${JSON.stringify(title)}`);
+test('photoStem leaves out empty parts', () => {
+  assert.equal(photoStem({ owner: 'O', folder: '', number: '', key: 'abcd1234' }), 'O_abcd1234');
+  assert.equal(photoStem({ owner: 'O', folder: 'Album', number: '03', key: null }), 'O_Album_03');
+});
+
+test('buildFilename: album photo → <Owner>_<Album>_<nn>_<id>', () => {
+  assert.equal(
+    buildFilename({ owner: 'BitPaerchen', album: 'Fotos von uns', position: 3, count: 12, photoId: 'abcd1234', url: IMAGE_URL }),
+    'BitPaerchen_Fotos-von-uns_03_abcd1234.webp',
+  );
+});
+
+test('buildFilename pads the number to the width of count', () => {
+  assert.equal(
+    buildFilename({ owner: 'O', album: 'A', position: 7, count: 120, photoId: 'k', url: IMAGE_URL }),
+    'O_A_007_k.webp',
+  );
+});
+
+test('buildFilename without album context → <Owner>_<id>', () => {
+  assert.equal(buildFilename({ owner: 'Owner', photoId: '1001', url: IMAGE_URL }), 'Owner_1001.webp');
+});
+
+test('buildFilename drops the album part when title or position is unusable', () => {
+  const base = { owner: 'O', album: 'A', position: 2, count: 5, photoId: 'k', url: IMAGE_URL };
+  for (const change of [{ album: '' }, { album: '///' }, { position: null }, { position: 0 }, { position: 6 }, { count: undefined }]) {
+    assert.equal(buildFilename({ ...base, ...change }), 'O_k.webp', JSON.stringify(change));
   }
 });
 
-test('pickTitle falls back to image without photo id', () => {
-  assert.equal(pickTitle('...', null), 'image');
-  assert.equal(pickTitle('', undefined), 'image');
+test('buildFilename falls back to unknown owner and image', () => {
+  assert.equal(buildFilename({ owner: '', photoId: null, url: IMAGE_URL }), 'unknown_image.webp');
 });
 
-test('buildFilename: owner + title', () => {
-  assert.equal(
-    buildFilename({ owner: 'BitPaerchen', title: 'Profilbild', photoId: '1001', url: IMAGE_URL, date: DATE }),
-    `BitPaerchen_Profilbild_${TS}.webp`,
-  );
-});
-
-test('buildFilename: owner + placeholder title + photoId', () => {
-  assert.equal(
-    buildFilename({ owner: 'Owner', title: '...', photoId: '1001', url: IMAGE_URL, date: DATE }),
-    `Owner_photo-1001_${TS}.webp`,
-  );
-});
-
-test('buildFilename: missing owner + title', () => {
-  assert.equal(
-    buildFilename({ owner: null, title: 'Title', photoId: null, url: IMAGE_URL, date: DATE }),
-    `unknown_Title_${TS}.webp`,
-  );
-});
-
-test('buildFilename: missing owner + placeholder title, no photoId', () => {
-  assert.equal(
-    buildFilename({ owner: '', title: '…', photoId: null, url: IMAGE_URL, date: DATE }),
-    `unknown_image_${TS}.webp`,
-  );
-});
-
-test('buildFilename sanitises owner and title', () => {
-  const name = buildFilename({ owner: 'a/b c', title: 'x:y/z', photoId: null, url: IMAGE_URL, date: DATE });
-  assert.equal(name, `a_b-c_x_y_z_${TS}.webp`);
-  assert.ok(!name.includes('/'));
-});
-
-test('buildFilename falls back when title sanitises to empty', () => {
-  assert.equal(
-    buildFilename({ owner: 'Owner', title: '///', photoId: '1001', url: IMAGE_URL, date: DATE }),
-    `Owner_photo-1001_${TS}.webp`,
-  );
-});
-
-test('buildFilename truncates title to MAX_TITLE_LENGTH, not owner', () => {
-  const owner = 'o'.repeat(100);
-  const name = buildFilename({ owner, title: 't'.repeat(200), photoId: null, url: IMAGE_URL, date: DATE });
-  assert.equal(name, `${owner}_${'t'.repeat(MAX_TITLE_LENGTH)}_${TS}.webp`);
+test('buildFilename sanitises owner, album and id', () => {
+  const name = buildFilename({ owner: 'a/b c', album: 'x:y', position: 1, count: 1, photoId: 'p/q', url: IMAGE_URL });
+  assert.equal(name, 'a_b-c_x_y_01_p_q.webp');
 });
 
 test('folderSegment keeps umlauts and emoji, whitespace → -', () => {

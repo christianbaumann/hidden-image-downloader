@@ -21,8 +21,7 @@ const OWN_EXTENSION_ID = 'own-extension-id';
 const OTHER_EXTENSION_ID = 'other-extension-id';
 const VALID_DATA = {
   style: `background-image: url("${IMAGE_URL}")`,
-  title: 'Rück: Ansicht',
-  owner: 'TestOwner',
+  owner: 'Rück: Owner',
   photoId: '1001',
   pageUrl: 'https://www.joyclub.de/profile/1.html',
 };
@@ -233,7 +232,7 @@ describe('handleActionClick', () => {
 
     const [options] = callsNamed('download');
     assert.equal(options.url, JPG_URL);
-    assert.match(options.filename, /^TestOwner_Rück_-Ansicht_\d{4}-\d{2}-\d{2}_\d{6}\.jpg$/);
+    assert.match(options.filename, /^Rück_-Owner_1001\.jpg$/);
     assert.equal(options.conflictAction, 'uniquify');
     assert.equal(options.saveAs, false);
     assert.deepEqual(result, { url: JPG_URL, filename: options.filename, downloadId: DOWNLOAD_ID });

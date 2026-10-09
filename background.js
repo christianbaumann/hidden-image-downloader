@@ -296,7 +296,7 @@ export async function handleActionClick(tab) {
     if (!raw) {
       throw new NothingToDownloadError();
     }
-    const { url, filename } = await firstAvailable(toDownloadCandidates(raw, date));
+    const { url, filename } = await firstAvailable(toDownloadCandidates(raw));
     const downloadId = await startDownload(url, filename);
     return { url, filename, downloadId };
   } catch (error) {
