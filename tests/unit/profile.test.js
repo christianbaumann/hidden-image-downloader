@@ -385,6 +385,19 @@ describe('fetchProfileAlbums', () => {
     assert.ok(elapsed >= TOKEN_DELAY_MS && elapsed < TOKEN_DELAY_MS + TITLE_STABLE_MS);
   });
 
+  test('keeps waiting for the title past the wait limit while the API calls run', async () => {
+    const TOKEN_DELAY_MS = TITLE_WAIT_MS + 1000;
+    const CARD_APPEARS_MS = TITLE_WAIT_MS + 500;
+    const token = responses[0];
+    responses[0] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
+    stubDocument({ cards: (now) => (now < CARD_APPEARS_MS ? [] : [REGULAR_CARD, MAIN_CARD]) });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= CARD_APPEARS_MS + TITLE_STABLE_MS);
+  });
+
   test('a rendered page answers after the title has been stable', async () => {
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
