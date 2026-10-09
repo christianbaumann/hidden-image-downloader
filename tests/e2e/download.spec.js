@@ -47,6 +47,22 @@ function badgeState(serviceWorker) {
   });
 }
 
+// Records every badge text the extension sets from now on; read them with recordedBadgeTexts.
+function recordBadgeTexts(serviceWorker) {
+  return serviceWorker.evaluate(() => {
+    const setBadgeText = chrome.action.setBadgeText.bind(chrome.action);
+    globalThis.badgeTexts = [];
+    chrome.action.setBadgeText = (details) => {
+      globalThis.badgeTexts.push(details.text);
+      return setBadgeText(details);
+    };
+  });
+}
+
+function recordedBadgeTexts(serviceWorker) {
+  return serviceWorker.evaluate(() => globalThis.badgeTexts);
+}
+
 function downloadItem(serviceWorker, id) {
   return serviceWorker.evaluate(async (downloadId) => {
     const [item] = await chrome.downloads.search({ id: downloadId });
@@ -114,6 +130,20 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   ]);
   expect((await badgeState(serviceWorker)).text).toBe('');
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
+});
+
+test('shows the ZIP progress on the badge before clearing it', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer);
+  await recordBadgeTexts(serviceWorker);
+
+  const result = await clickAction(serviceWorker);
+
+  await zipEntries(serviceWorker, result.downloadId);
+  const texts = await recordedBadgeTexts(serviceWorker);
+  expect(texts.slice(0, 3)).toEqual(['', '0%', '10%']);
+  expect(texts).toContain('1/2');
+  expect(texts.at(-1)).toBe('');
+  expect(await badgeState(serviceWorker)).toEqual({ text: '', title: 'Download hidden image' });
 });
 
 test('lists a missing album photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {

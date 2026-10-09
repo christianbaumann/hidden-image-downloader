@@ -203,6 +203,31 @@ describe('buildZip', () => {
   });
 });
 
+describe('buildZip onProgress', () => {
+  it('reports once per entry, done rising to total', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: okResponse(BYTES_B) });
+    const progress = [];
+    await buildZip(ENTRIES, { JSZip, fetch, onProgress: (done, total) => progress.push([done, total]) });
+    assert.deepEqual(progress, [[1, 2], [2, 2]]);
+  });
+
+  it('counts missing photos too', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const { fetch } = stubFetch({ [URL_A]: new Error('x'), [URL_B]: { ok: false, status: HTTP_NOT_FOUND } });
+    const progress = [];
+    await buildZip(ENTRIES, { JSZip, fetch, delay: noDelay, onProgress: (done, total) => progress.push([done, total]) });
+    assert.deepEqual(progress, [[1, 2], [2, 2]]);
+  });
+
+  it('reports a retried photo only after its last attempt', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const { fetch, calls } = stubFetch({ [URL_A]: new Error('x') });
+    const attemptsAtReport = [];
+    await buildZip([ENTRIES[0]], { JSZip, fetch, delay: noDelay, onProgress: () => attemptsAtReport.push(calls.length) });
+    assert.deepEqual(attemptsAtReport, [MAX_ATTEMPTS]);
+  });
+});
+
 describe('isRetryable', () => {
   for (const status of [HTTP_TOO_MANY_REQUESTS, HTTP_SERVER_ERROR, HTTP_UNAVAILABLE]) {
     it(`retries HTTP ${status}`, () => assert.equal(isRetryable(status), true));

@@ -25,10 +25,13 @@ const BLOB_URL = 'blob:chrome-extension://own-extension-id/5f1c';
 const ZIP_DOWNLOAD_ID = 43;
 const UNRELATED_DOWNLOAD_ID = 99;
 const OFFSCREEN_READY_LIMIT = 50;
+const PROGRESS_COLOR = '#1a73e8';
+const WARNING_COLOR = '#e0a000';
 
 const listeners = [];
 const filenameListeners = [];
 const changedListeners = [];
+const messageListeners = [];
 let calls;
 let extracted;
 let executeScript;
@@ -49,6 +52,7 @@ const record = (name) => async (details) => {
 globalThis.chrome = {
   runtime: {
     id: OWN_EXTENSION_ID,
+    onMessage: { addListener: (listener) => messageListeners.push(listener) },
     sendMessage: async (message) => {
       calls.push(['sendMessage', message]);
       return sendMessage(message);
@@ -109,6 +113,9 @@ const callsNamed = (name) => calls.filter(([callName]) => callName === name).map
 const lastTitle = () => callsNamed('setTitle').at(-1).title;
 const lastBadgeText = () => callsNamed('setBadgeText').at(-1).text;
 const injectedFunctions = () => callsNamed('executeScript').map(({ func }) => func.name);
+const fireProgress = (jobId, done, total) => messageListeners.forEach((listener) =>
+  listener({ target: 'background', action: 'zip-progress', jobId, done, total }));
+const badgeTextsOf = (tabId) => callsNamed('setBadgeText').filter((call) => call.tabId === tabId).map(({ text }) => text);
 const fireDownloadChanged = (id, state) => changedListeners.forEach((listener) => listener({ id, state: { current: state } }));
 
 // Fires onDeterminingFilename like Chrome; returns the listener's suggestion or undefined.
@@ -536,7 +543,7 @@ describe('profile ZIP', () => {
     assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
     assert.deepEqual(result.missing, [missingUrl]);
     assert.equal(lastBadgeText(), '!');
-    assert.deepEqual(callsNamed('setBadgeBackgroundColor'), [{ tabId: PROFILE_TAB.id, color: '#e0a000' }]);
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
     assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
   });
 
@@ -691,5 +698,134 @@ describe('profile ZIP', () => {
     fireDownloadChanged(secondId, 'complete');
     await new Promise(setImmediate);
     assert.equal(callsNamed('closeDocument').length, 1);
+  });
+});
+
+describe('ZIP progress badge', () => {
+  afterEach(async () => {
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await new Promise(setImmediate);
+  });
+
+  // Answers build-zip after onBuild(message) ran, so progress can arrive while the job is open.
+  function buildWith(onBuild) {
+    sendMessage = async (message) => {
+      if (message.action === 'ping') {
+        return { ready: true };
+      }
+      await onBuild(message);
+      return zipResponse;
+    };
+  }
+
+  test('the API phase shows 0 % and then 10 % in blue', async () => {
+    await handleActionClick(PROFILE_TAB);
+
+    assert.deepEqual(badgeTextsOf(PROFILE_TAB.id).slice(0, 3), ['', '0%', '10%']);
+    assert.equal(callsNamed('setBadgeBackgroundColor')[0].color, PROGRESS_COLOR);
+    assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list');
+  });
+
+  test('photo progress shows the count and "n of m photos" in blue', async () => {
+    buildWith(({ jobId }) => fireProgress(jobId, 1, 2));
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.ok(calls.some(([name, details]) => name === 'setBadgeText' && details.text === '1/2'));
+    assert.ok(callsNamed('setTitle').some(({ title }) => title === 'Hidden Image Downloader: 1 of 2 photos'));
+    assert.ok(callsNamed('setBadgeBackgroundColor').every(({ color }) => color === PROGRESS_COLOR));
+  });
+
+  test('a long count shows the overall percentage', async () => {
+    buildWith(({ jobId }) => fireProgress(jobId, 10, 80));
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.ok(badgeTextsOf(PROFILE_TAB.id).includes('21%'));
+  });
+
+  test('a complete ZIP ends with an empty badge and the default title', async () => {
+    buildWith(({ jobId }) => fireProgress(jobId, 2, 2));
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(lastBadgeText(), '');
+    assert.equal(lastTitle(), 'Download hidden image');
+  });
+
+  test('missing photos replace the progress with the amber warning', async () => {
+    buildWith(({ jobId }) => fireProgress(jobId, 2, 2));
+    zipResponse = { url: BLOB_URL, added: 1, missing: ['https://image-user.feig-partner.de/x.jpg'] };
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(lastBadgeText(), '!');
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
+  });
+
+  test('two ZIP jobs at once update the badges of their own tabs only', async () => {
+    const otherProfileTab = { ...PROFILE_TAB, id: OTHER_TAB.id };
+    const builds = [];
+    let releaseBuilds;
+    const bothBuilding = new Promise((resolve) => {
+      releaseBuilds = resolve;
+    });
+    buildWith(async (message) => {
+      builds.push(message);
+      if (builds.length === 2) {
+        releaseBuilds();
+      }
+      await bothBuilding;
+      fireProgress(message.jobId, 1, message.entries.length);
+    });
+    extracted.fetchProfileAlbums = albumRaw();
+    const oneAlbum = albumRaw({ list: listResult({ main: ['101'] }) });
+    executeScript = async ({ func, target }) => [{
+      result: target.tabId === otherProfileTab.id ? oneAlbum : extracted[func.name],
+    }];
+
+    await Promise.all([handleActionClick(PROFILE_TAB), handleActionClick(otherProfileTab)]);
+
+    assert.notEqual(builds[0].jobId, builds[1].jobId);
+    assert.ok(badgeTextsOf(PROFILE_TAB.id).includes('1/2'));
+    assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('1/1'), false);
+    assert.ok(badgeTextsOf(otherProfileTab.id).includes('1/1'));
+    assert.equal(badgeTextsOf(otherProfileTab.id).includes('1/2'), false);
+  });
+
+  test('an unexpected error clears the progress badge before it propagates', async () => {
+    extracted.fetchProfileAlbums = albumRaw({ list: { __typename: 'ProfileAlbumListByUserIdSuccess', regularAlbumResultList: 1 } });
+
+    await assert.rejects(handleActionClick(PROFILE_TAB), TypeError);
+    assert.equal(lastBadgeText(), '');
+    assert.equal(lastTitle(), 'Download hidden image');
+  });
+
+  test('progress after the job has ended is ignored', async () => {
+    let jobId;
+    buildWith((message) => {
+      jobId = message.jobId;
+    });
+    await handleActionClick(PROFILE_TAB);
+    calls = [];
+
+    fireProgress(jobId, 1, 2);
+    fireProgress(jobId + 1, 1, 2);
+
+    assert.equal(callsNamed('setBadgeText').length, 0);
+  });
+
+  test('ignores messages for other targets', async () => {
+    let jobId;
+    buildWith((message) => {
+      jobId = message.jobId;
+      calls = [];
+      messageListeners.forEach((listener) => listener({ target: 'offscreen', action: 'zip-progress', jobId, done: 1, total: 2 }));
+    });
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('1/2'), false);
   });
 });

@@ -1,11 +1,14 @@
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import { NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest } from './lib/profile.js';
+import { PHASES, overallPercent, progressBadgeText } from './lib/progress.js';
 
 const DEFAULT_ACTION_TITLE = 'Download hidden image';
 const BADGE_TITLE_PREFIX = 'Hidden Image Downloader: ';
 const BADGE_TEXT = '!';
 const BADGE_ERROR_COLOR = '#d00000';
 const BADGE_WARNING_COLOR = '#e0a000';
+const BADGE_PROGRESS_COLOR = '#1a73e8';
+const API_PHASE_TITLE = 'loading album list';
 const CONFLICT_ACTION = 'uniquify';
 const PROBE_TIMEOUT_MS = 5000;
 const OFFSCREEN_URL = 'offscreen.html';
@@ -19,6 +22,9 @@ const pendingFilenames = new Map();
 // The offscreen document owns the ZIP blob URLs, so it stays open until every ZIP download has finished.
 const zipDownloadIds = new Set();
 let activeZipJobs = 0;
+// ZIP job id → tab id, so progress from the offscreen document reaches the badge of its own tab.
+const zipJobTabs = new Map();
+let nextZipJobId = 0;
 // Opening and closing the document run one after the other, so overlapping clicks and closes can't collide.
 let offscreenQueue = Promise.resolve();
 
@@ -59,6 +65,17 @@ async function showBadge(tabId, reason, color) {
   ]);
 }
 
+async function showProgress(tabId, text, title) {
+  await updateBadge([
+    chrome.action.setBadgeText({ tabId, text }),
+    chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_PROGRESS_COLOR }),
+    chrome.action.setTitle({ tabId, title: BADGE_TITLE_PREFIX + title }),
+  ]);
+}
+
+const showApiProgress = (tabId, resolved, count) =>
+  showProgress(tabId, `${overallPercent(PHASES.API, resolved, count)}%`, API_PHASE_TITLE);
+
 const showError = (tabId, reason) => showBadge(tabId, reason, BADGE_ERROR_COLOR);
 const showWarning = (tabId, reason) => showBadge(tabId, reason, BADGE_WARNING_COLOR);
 
@@ -69,6 +86,17 @@ async function extractFromTab(tabId, func, args = []) {
   } catch {
     throw new UnsupportedPageError();
   }
+}
+
+// fetchers: [func, args] pairs injected in parallel; the badge counts how many have resolved.
+async function extractAllWithProgress(tabId, fetchers) {
+  let resolved = 0;
+  await showApiProgress(tabId, resolved, fetchers.length);
+  return Promise.all(fetchers.map(async ([func, args]) => {
+    const result = await extractFromTab(tabId, func, args);
+    await showApiProgress(tabId, ++resolved, fetchers.length);
+    return result;
+  }));
 }
 
 // HEAD every candidate but the last; the first ok one wins, the last is the unprobed fallback.
@@ -145,13 +173,17 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-async function buildZipOffscreen(entries, reports) {
+async function buildZipOffscreen(tabId, entries, reports) {
+  const jobId = nextZipJobId++;
+  zipJobTabs.set(jobId, tabId);
   let response;
   try {
     await ensureOffscreenDocument();
-    response = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'build-zip', entries, reports });
+    response = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'build-zip', jobId, entries, reports });
   } catch {
     throw new DownloadFailedError();
+  } finally {
+    zipJobTabs.delete(jobId);
   }
   if (!response?.url) {
     throw new DownloadFailedError();
@@ -164,7 +196,7 @@ async function downloadZip(tabId, { zipName, entries, reports = [] }) {
   let response;
   let downloadId;
   try {
-    response = await buildZipOffscreen(entries, reports);
+    response = await buildZipOffscreen(tabId, entries, reports);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {
     activeZipJobs--;
@@ -175,6 +207,8 @@ async function downloadZip(tabId, { zipName, entries, reports = [] }) {
   const { url, added, missing } = response;
   if (missing.length > 0) {
     await showWarning(tabId, `${missing.length} of ${entries.length} photos missing`);
+  } else {
+    await clearBadge(tabId);
   }
   return { url, filename: zipName, downloadId, added, missing };
 }
@@ -186,6 +220,19 @@ async function onDownloadChanged({ id, state }) {
   zipDownloadIds.delete(id);
   activeZipJobs--;
   await closeOffscreenIfIdle();
+}
+
+// Sync on purpose: a returned promise would count as an async answer to the message.
+function onZipProgress(message) {
+  if (message?.target !== 'background' || message.action !== 'zip-progress') {
+    return;
+  }
+  const tabId = zipJobTabs.get(message.jobId);
+  if (tabId === undefined) {
+    return;
+  }
+  const { done, total } = message;
+  showProgress(tabId, progressBadgeText(done, total), `${done} of ${total} photos`);
 }
 
 function suggestOwnFilename(item, suggest) {
@@ -203,7 +250,7 @@ export async function handleActionClick(tab) {
     const date = new Date();
     const userId = profileUserId(tab.url);
     if (userId) {
-      const raw = await extractFromTab(tab.id, fetchProfileAlbums, [userId]);
+      const [raw] = await extractAllWithProgress(tab.id, [[fetchProfileAlbums, [userId]]]);
       return await downloadZip(tab.id, toAlbumZipRequest(raw, date));
     }
     const raw = await extractFromTab(tab.id, extractLightboxData);
@@ -216,6 +263,7 @@ export async function handleActionClick(tab) {
   } catch (error) {
     const reason = ERROR_REASONS[error.name];
     if (!reason) {
+      await clearBadge(tab.id);
       throw error;
     }
     await showError(tab.id, reason);
@@ -226,4 +274,5 @@ export async function handleActionClick(tab) {
 chrome.action.onClicked.addListener(handleActionClick);
 chrome.downloads.onDeterminingFilename.addListener(suggestOwnFilename);
 chrome.downloads.onChanged.addListener(onDownloadChanged);
+chrome.runtime.onMessage.addListener(onZipProgress);
 globalThis.handleActionClick = handleActionClick;
