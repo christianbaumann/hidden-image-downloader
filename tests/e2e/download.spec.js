@@ -183,6 +183,7 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'ClubMail/conversation.html',
     'ClubMail/conversation.md',
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
@@ -193,6 +194,11 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
   expect(transcript).toContain('**TestMe** · 21:10\nHi :-) & bye\n');
   expect(transcript).toContain('**TestOwner** · 21:11\n> Reply to TestMe, 2026-09-30 21:10: Hi :-) & bye\n\nPhoto\n\n![attachment](TestOwner_ClubMail_01_e2e-a1.jpg)\n');
   expect(transcript).toContain('**TestOwner** · 21:12\n![attachment](TestOwner_ClubMail_02_e2e-a2.jpg)\n');
+  const html = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.html');
+  expect([...html.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => src))
+    .toEqual(['TestOwner_ClubMail_01_e2e-a1.jpg', 'TestOwner_ClubMail_02_e2e-a2.jpg']);
+  expect(html).toContain('<p>Hi :-) &amp; bye</p>');
+  expect(html).not.toMatch(/(?:src|href)="(?:https?:)?\/\//);
   expect((await badgeState(serviceWorker)).text).toBe('');
 });
 
@@ -216,6 +222,7 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'ClubMail/conversation.html',
     'ClubMail/conversation.md',
     'skipped.txt',
   ]);

@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contentToMarkdown, contentToText, decodeEntities, markdownUrl } from '../../lib/clubmail-content.js';
+import { contentToHtml, contentToMarkdown, contentToText, decodeEntities, escapeHtml, markdownUrl } from '../../lib/clubmail-content.js';
 
 const SMILEY = '<img class="joy_smiley" src="//cfnimg.joyclub.de/smile/grins.gif" alt=":-D">';
 
@@ -76,6 +76,61 @@ describe('contentToMarkdown', () => {
   test('empty or missing content gives an empty string', () => {
     assert.equal(contentToMarkdown(''), '');
     assert.equal(contentToMarkdown(undefined), '');
+  });
+});
+
+describe('contentToHtml', () => {
+  test('keeps <br> and turns a smiley into its alt text', () => {
+    assert.equal(contentToHtml(`one<br />two ${SMILEY}`), 'one<br>two :-D');
+  });
+
+  test('keeps an http(s) link with an escaped href', () => {
+    assert.equal(
+      contentToHtml('see <a class="j-anchor primary" href="https://example.com/a?x=1&amp;y=&quot;2">here</a>'),
+      'see <a href="https://example.com/a?x=1&amp;y=&quot;2">here</a>',
+    );
+  });
+
+  test('a link without text shows its escaped URL', () => {
+    assert.equal(contentToHtml('<a href="http://e.com/?a&amp;b"></a>'), '<a href="http://e.com/?a&amp;b">http://e.com/?a&amp;b</a>');
+  });
+
+  test('a link with another scheme keeps only its text', () => {
+    assert.equal(contentToHtml('<a href="javascript:alert(1)">click</a> <a href="data:text/html,x">d</a>'), 'click d');
+  });
+
+  test('decodes entities, then escapes, so typed markup stays text', () => {
+    assert.equal(
+      contentToHtml('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; Tom &amp; Jerry\'s'),
+      '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; Tom &amp; Jerry&#39;s',
+    );
+  });
+
+  test('strips any other tag, including remote images and scripts', () => {
+    assert.equal(contentToHtml('<b>bold</b> <img src="https://x/y.png" onerror="a()"><script>x()</script>'), 'bold x()');
+  });
+
+  test('the scheme check ignores case and runs after entity decoding', () => {
+    assert.equal(contentToHtml('<a href="HTTPS://a">x</a>'), '<a href="HTTPS://a">x</a>');
+    assert.equal(contentToHtml('<a href="&#106;avascript:a()">x</a> <a href=" https://a">y</a>'), 'x y');
+  });
+
+  test('a quote in an unquoted href stays inside the attribute', () => {
+    assert.equal(contentToHtml('<a href=https://a"onmouseover=b()>x</a>'), '<a href="https://a&quot;onmouseover=b()">x</a>');
+  });
+
+  test('a link opened inside another link keeps the outer text', () => {
+    assert.equal(contentToHtml('<a href="https://a">one <a href="https://b">two</a>'), 'one <a href="https://b">two</a>');
+  });
+
+  test('empty or missing content gives an empty string', () => {
+    assert.equal(contentToHtml(undefined), '');
+  });
+});
+
+describe('escapeHtml', () => {
+  test('escapes &, <, >, double and single quotes', () => {
+    assert.equal(escapeHtml(`<a href="x" title='y'>&</a>`), '&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;');
   });
 });
 

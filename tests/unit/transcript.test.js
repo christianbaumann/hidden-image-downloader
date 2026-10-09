@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderConversationMarkdown } from '../../lib/transcript.js';
+import { renderConversationHtml, renderConversationMarkdown } from '../../lib/transcript.js';
 
 const EXPORTED_AT = new Date(2026, 9, 9, 14, 2);
 const at = (day, hour, minute) => new Date(2026, 8, day, hour, minute).getTime();
@@ -83,5 +83,81 @@ describe('renderConversationMarkdown', () => {
 
   test('a missing partner name gives "Unknown"', () => {
     assert.match(render([message({})], ''), /^# ClubMail with Unknown\n/);
+  });
+});
+
+const renderHtml = (messages, partner = 'TestOwner') => renderConversationHtml({ partner, messages, exportedAt: EXPORTED_AT });
+const REMOTE_URL = /(?:src|href)\s*=\s*"(?:https?:)?\/\//gi;
+
+describe('renderConversationHtml', () => {
+  test('renders title, export line, day headings and author · time per message', () => {
+    const html = renderHtml([
+      message({ content: 'Hi<br />there' }),
+      message({ author: 'TestMe', time: at(30, 21, 20), content: 'Hello' }),
+      message({ time: new Date(2026, 9, 1, 8, 5).getTime(), content: 'Morning' }),
+    ]);
+
+    assert.match(html, /^<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n/);
+    assert.match(html, /<title>ClubMail with TestOwner<\/title>\n<style>\n[^<]+<\/style>/);
+    assert.match(html, /<h1>ClubMail with TestOwner<\/h1>\n<p>Exported 2026-10-09 14:02 · 3 messages<\/p>\n<h2>2026-09-30<\/h2>\n/);
+    assert.match(html, /<p class="header"><strong>TestOwner<\/strong> · 21:14<\/p>\n<p>Hi<br>there<\/p>\n<\/div>\n/);
+    assert.match(html, /<strong>TestMe<\/strong> · 21:20<\/p>\n<p>Hello<\/p>\n<\/div>\n<h2>2026-10-01<\/h2>\n/);
+    assert.match(html, /<strong>TestOwner<\/strong> · 08:05<\/p>\n<p>Morning<\/p>\n<\/div>\n<\/body>\n<\/html>\n$/);
+  });
+
+  test('a reply is a blockquote before the text', () => {
+    const reply = { author: 'TestMe', time: at(30, 21, 10), content: 'Hi <a href="https://x">you</a>' };
+    const html = renderHtml([message({ content: 'Answer', reply })]);
+
+    assert.match(html, /· 21:14<\/p>\n<blockquote>Reply to TestMe, 2026-09-30 21:10: Hi you<\/blockquote>\n<p>Answer<\/p>\n/);
+  });
+
+  test('an image attachment is an <img>, another file a link, both relative', () => {
+    const html = renderHtml([
+      message({ attachment: { file: 'TestOwner_ClubMail_01_a1.jpg', name: 'beach.jpg', isImage: true } }),
+      message({ attachment: { file: 'Max_(B)_ClubMail_02_a#2.pdf', name: 'plan.pdf', isImage: false } }),
+    ]);
+
+    assert.match(html, /<p><img src="TestOwner_ClubMail_01_a1\.jpg" alt="attachment"><\/p>/);
+    assert.match(html, /<p><a href="Max_\(B\)_ClubMail_02_a%232\.pdf">plan\.pdf<\/a><\/p>/);
+  });
+
+  test('escapes <script>, quotes and & in text, partner, author, reply and file names', () => {
+    const reply = { author: '<b>"Me"</b>', time: at(30, 21, 10), content: '&lt;script&gt;x&lt;/script&gt;' };
+    const html = renderHtml([
+      message({
+        author: `O'Neil & <script>a()</script>`,
+        content: '&lt;script&gt;alert(&quot;1&quot;)&lt;/script&gt; &amp;',
+        reply,
+        attachment: { file: `x"onerror="a()'.pdf`, name: '<img src=x onerror=a()>.pdf', isImage: false },
+      }),
+    ], '<script>p()</script>');
+
+    assert.doesNotMatch(html, /<script|<img src=x|<b>/);
+    assert.match(html, /<title>ClubMail with &lt;script&gt;p\(\)&lt;\/script&gt;<\/title>/);
+    assert.match(html, /<strong>O&#39;Neil &amp; &lt;script&gt;a\(\)&lt;\/script&gt;<\/strong>/);
+    assert.match(html, /<p>&lt;script&gt;alert\(&quot;1&quot;\)&lt;\/script&gt; &amp;<\/p>/);
+    assert.match(html, /<blockquote>Reply to &lt;b&gt;&quot;Me&quot;&lt;\/b&gt;, 2026-09-30 21:10: &lt;script&gt;x&lt;\/script&gt;<\/blockquote>/);
+    assert.match(html, /<a href="x%22onerror%3D%22a\(\)&#39;\.pdf">&lt;img src=x onerror=a\(\)&gt;\.pdf<\/a>/);
+  });
+
+  test('loads no remote resource; only message links point to a remote URL', () => {
+    const smiley = '<img class="joy_smiley" src="//cfnimg.joyclub.de/smile/a.gif" alt=":-)">';
+    const html = renderHtml([
+      message({ content: `${smiley} <img src="https://evil/p.gif"> <a href="javascript:x()">j</a> <a href="https://example.com">site</a>` }),
+      message({ attachment: { file: 'f.jpg', name: 'f.jpg', isImage: true } }),
+    ]);
+
+    assert.deepEqual(html.match(REMOTE_URL), ['href="https://']);
+    assert.match(html, /<p>:-\) {2}j <a href="https:\/\/example\.com">site<\/a><\/p>/);
+    assert.doesNotMatch(html, /<link|@import|url\(/);
+  });
+
+  test('a message without body shows only its header', () => {
+    assert.match(renderHtml([message({})]), /<strong>TestOwner<\/strong> · 21:14<\/p>\n<\/div>\n/);
+  });
+
+  test('a missing partner name gives "Unknown"', () => {
+    assert.match(renderHtml([message({})], ''), /<h1>ClubMail with Unknown<\/h1>/);
   });
 });

@@ -309,10 +309,19 @@ describe('toAlbumZipRequest with ClubMail', () => {
     assert.match(transcript.text, /!\[attachment\]\(TestOwner_ClubMail_02_a2\.jpg\)\n$/);
   });
 
+  test('adds ClubMail/conversation.html with the same attachment files as the entries', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, CLUBMAIL);
+
+    const [html] = request.reports.filter(({ name }) => name === 'ClubMail/conversation.html');
+    const sources = [...html.text.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => `ClubMail/${src}`);
+    assert.deepEqual(sources, request.entries.map(({ name }) => name).filter((name) => name.startsWith('ClubMail/')));
+    assert.match(html.text, /<h1>ClubMail with TestOwner<\/h1>\n<p>Exported 2026-10-08 17:45 · 2 messages<\/p>/);
+  });
+
   test('a conversation without attachments still gets its transcript', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN, messages: [textMessage('10')] });
 
-    assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md']);
+    assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
   });
 
   test('a failed ClubMail fetch writes no transcript', () => {
