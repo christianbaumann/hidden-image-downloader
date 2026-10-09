@@ -332,7 +332,7 @@ export async function handleActionClick(tab) {
     if (!raw) {
       throw new NothingToDownloadError();
     }
-    const { url, filename } = await firstAvailable(toDownloadCandidates(raw, date), log);
+    const { url, filename } = await firstAvailable(toDownloadCandidates(raw), log);
     const downloadId = await startDownload(url, filename);
     log.add('download started', { url });
     return { url, filename, downloadId };

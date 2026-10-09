@@ -14,6 +14,7 @@ Right-clicking any image on a JoyClub page (profile cards, album grids, lightbox
 * `design.md#content-script-finds-the-right-clicked-image`
 * `lib/lightbox.js` (`parseBackgroundImageUrl`), `lib/image-url.js` (`largestJpegUrl`, `toJpgUrl`)
 * `background.js` (`firstAvailable`, `startDownload`)
+* `../research-04-lightbox-context.md` (album context only on `/profile/fotoalbum/…`: `h2.profile-headline`, `a.album-link` order; photo detail pages use `.image-ui` with `srcset`)
 * `manifest.json`, `tests/unit/manifest.test.js`
 
 ## Work
