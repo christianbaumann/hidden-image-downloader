@@ -22,6 +22,7 @@ const FINISHED_DOWNLOAD_STATES = new Set(['complete', 'interrupted']);
 const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
 const WARNING_SEPARATOR = '; ';
 const CLUBMAIL_FAILED = { failed: true };
+const ZIP_EXTENSION = '.zip';
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -195,13 +196,15 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-async function buildZipOffscreen(tabId, entries, reports) {
+async function buildZipOffscreen(tabId, root, entries, reports) {
   const jobId = nextZipJobId++;
   zipJobTabs.set(jobId, tabId);
   let response;
   try {
     await ensureOffscreenDocument();
-    response = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'build-zip', jobId, entries, reports });
+    response = await chrome.runtime.sendMessage({
+      target: 'offscreen', action: 'build-zip', jobId, root, entries, reports,
+    });
   } catch {
     throw new DownloadFailedError();
   } finally {
@@ -218,7 +221,8 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
   let response;
   let downloadId;
   try {
-    response = await buildZipOffscreen(tabId, entries, reports);
+    const root = zipName.slice(0, -ZIP_EXTENSION.length);
+    response = await buildZipOffscreen(tabId, root, entries, reports);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {
     activeZipJobs--;

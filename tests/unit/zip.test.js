@@ -204,6 +204,15 @@ describe('buildZip', () => {
     assert.deepEqual(Object.keys(zip.files).sort(), ['A/', 'A/x.jpg']);
   });
 
+  it('puts entries, reports and missing.txt into the root folder', async () => {
+    const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: new Error('x') });
+    const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, root: 'Owner_2026', delay: noDelay });
+    const zip = await readZip(blob);
+    assert.deepEqual(Object.keys(zip.files).sort(), [
+      'Owner_2026/', 'Owner_2026/Owner_01_a.jpg', `Owner_2026/${MISSING_REPORT_NAME}`, `Owner_2026/${SKIPPED_REPORT_NAME}`,
+    ]);
+  });
+
   it('writes no reports when every fetch fails', async () => {
     const { fetch } = stubFetch({ [URL_A]: new Error('x'), [URL_B]: new Error('y') });
     const { blob, added } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS, delay: noDelay });

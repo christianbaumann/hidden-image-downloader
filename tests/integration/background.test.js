@@ -536,6 +536,7 @@ describe('profile ZIP', () => {
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
     assert.match(options.filename, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.equal(`${build.root}.zip`, options.filename);
     assert.deepEqual(result, {
       url: BLOB_URL, filename: options.filename, downloadId: ZIP_DOWNLOAD_ID, added: 2, missing: [],
     });
@@ -803,6 +804,7 @@ describe('ClubMail conversation ZIP', () => {
     assert.deepEqual(build.entries.map(({ name }) => name), ['ClubMail/TestOwner_ClubMail_01_a1.jpg']);
     assert.deepEqual(build.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
     assert.match(result.filename, /^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.equal(`${build.root}.zip`, result.filename);
     assert.equal(lastBadgeText(), '');
   });
 

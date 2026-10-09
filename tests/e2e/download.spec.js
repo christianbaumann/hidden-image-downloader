@@ -95,12 +95,21 @@ async function loadZip(serviceWorker, downloadId) {
   return JSZip.loadAsync(await readFile(filename));
 }
 
-async function zipEntries(serviceWorker, downloadId) {
-  return Object.keys((await loadZip(serviceWorker, downloadId)).files).sort();
+// The top folder every ZIP extracts into: the ZIP's name without '.zip'.
+function zipRoot({ filename }) {
+  return `${filename.replace(/\.zip$/, '')}/`;
 }
 
-async function zipText(serviceWorker, downloadId, name) {
-  return (await loadZip(serviceWorker, downloadId)).file(name).async('string');
+// Entry names below the top folder; fails when an entry lies outside it.
+async function zipEntries(serviceWorker, result) {
+  const root = zipRoot(result);
+  const names = Object.keys((await loadZip(serviceWorker, result.downloadId)).files).sort();
+  expect(names.filter((name) => !name.startsWith(root))).toEqual([]);
+  return names.filter((name) => name !== root).map((name) => name.slice(root.length));
+}
+
+async function zipText(serviceWorker, result, name) {
+  return (await loadZip(serviceWorker, result.downloadId)).file(zipRoot(result) + name).async('string');
 }
 
 function badgeColor(serviceWorker) {
@@ -150,7 +159,7 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   const result = await clickAction(serviceWorker);
 
   expect(result.filename).toMatch(/^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+  expect(await zipEntries(serviceWorker, result)).toEqual([
     'Aktuelles/',
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     'Fotos-von-uns/',
@@ -167,7 +176,7 @@ test('shows the ZIP progress on the badge before clearing it', async ({ page, se
 
   const result = await clickAction(serviceWorker);
 
-  await zipEntries(serviceWorker, result.downloadId);
+  await zipEntries(serviceWorker, result);
   const texts = await recordedBadgeTexts(serviceWorker);
   expect(texts.slice(0, 4)).toEqual(['', '0%', '5%', '10%']);
   expect(texts).toContain('1/2');
@@ -180,7 +189,7 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
 
   const result = await clickAction(serviceWorker);
 
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+  expect(await zipEntries(serviceWorker, result)).toEqual([
     'Aktuelles/',
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     'ClubMail/',
@@ -192,12 +201,12 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
     'skipped.txt',
   ]);
-  const transcript = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.md');
+  const transcript = await zipText(serviceWorker, result, 'ClubMail/conversation.md');
   expect(transcript).toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n\n## 2026-09-30\n/);
   expect(transcript).toContain('**TestMe** · 21:10\nHi :-) & bye\n');
   expect(transcript).toContain('**TestOwner** · 21:11\n> Reply to TestMe, 2026-09-30 21:10: Hi :-) & bye\n\nPhoto\n\n![attachment](TestOwner_ClubMail_01_e2e-a1.jpg)\n');
   expect(transcript).toContain('**TestOwner** · 21:12\n![attachment](TestOwner_ClubMail_02_e2e-a2.jpg)\n');
-  const html = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.html');
+  const html = await zipText(serviceWorker, result, 'ClubMail/conversation.html');
   expect([...html.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => src))
     .toEqual(['TestOwner_ClubMail_01_e2e-a1.jpg', 'TestOwner_ClubMail_02_e2e-a2.jpg']);
   expect(html).toContain('<p>Hi :-) &amp; bye</p>');
@@ -210,8 +219,8 @@ test('a failing ClubMail API still saves the album ZIP and warns', async ({ page
 
   const result = await clickAction(serviceWorker);
 
-  expect(await zipEntries(serviceWorker, result.downloadId)).not.toContain('ClubMail/');
-  expect(await zipText(serviceWorker, result.downloadId, 'skipped.txt')).toBe('Lady (9 photos)\nClubMail: unavailable\n');
+  expect(await zipEntries(serviceWorker, result)).not.toContain('ClubMail/');
+  expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos)\nClubMail: unavailable\n');
   expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
   expect(await badgeColor(serviceWorker)).toEqual(WARNING_COLOR_RGBA);
 });
@@ -221,7 +230,7 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
 
   const result = await clickAction(serviceWorker);
 
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+  expect(await zipEntries(serviceWorker, result)).toEqual([
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
@@ -244,16 +253,16 @@ test('an open conversation saves a ClubMail-only ZIP named after the partner', a
   const result = await clickAction(serviceWorker);
 
   expect(result.filename).toMatch(/^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+  expect(await zipEntries(serviceWorker, result)).toEqual([
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
     'ClubMail/conversation.html',
     'ClubMail/conversation.md',
   ]);
-  expect(await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.md'))
+  expect(await zipText(serviceWorker, result, 'ClubMail/conversation.md'))
     .toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n/);
-  const html = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.html');
+  const html = await zipText(serviceWorker, result, 'ClubMail/conversation.html');
   expect([...html.matchAll(/<div class="([^"]+)">/g)].map(([, name]) => name)).toEqual(['message own', 'message', 'message']);
   expect(requests.some((url) => url.includes('get_latest_message_list_of_conversation'))).toBe(true);
   expect(requests.some((url) => url.includes('graph') || url.includes('access_token'))).toBe(false);
@@ -276,7 +285,7 @@ test('lists a missing album photo in missing.txt and warns', async ({ page, serv
 
   const result = await clickAction(serviceWorker);
 
-  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+  expect(await zipEntries(serviceWorker, result)).toEqual([
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
     'missing.txt',
