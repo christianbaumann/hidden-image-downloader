@@ -14,7 +14,7 @@ Six additions, chosen in a brainstorm on 2026-10-09:
 | M | Failure log | A log file when a click fails or warns |
 | C | Context menu | "Save hidden image" on any JoyClub image, not only the lightbox |
 | F | Incremental export | A profile or conversation click saves only files not saved before |
-| H | Profile text | `profile.md` with profile text, album descriptions, photo captions |
+| H | Profile text | `profile.md` and `profile.html` with profile text, album descriptions, photo captions and hashtags |
 | J | Videos | Profile videos in the profile ZIP, if JoyClub serves them as files |
 
 Sources:
@@ -38,7 +38,7 @@ The extension gets two new entry points: a page context menu (C) and an action c
 ```text
 toolbar click            handleActionClick(tab)                    background.js
 ├── conversation URL     ClubMail-only ZIP, only new files    (F)
-├── profile URL          album ZIP + ClubMail, only new files (F), + profile.md (H), + Videos/ (J)
+├── profile URL          album ZIP + ClubMail, only new files (F), + profile.md/.html (H), + Videos/ (J)
 └── other URL            lightbox image, new filename scheme  (C)
 
 page context menu        "Save hidden image"                  (C)  JoyClub pages only
@@ -126,10 +126,19 @@ Spike first, with the user's live session (playwright-cli + cookies, see `CLAUDE
 
 Planned output, profile ZIP only:
 
+Answers of 2026-10-09 (after research 07):
+
+- Profile text converted to Markdown (bold, italic, paragraphs; smiley codes as escaped text), plus an HTML version styled like `conversation.html`.
+- Every saved photo is listed with its file link; only real titles are shown (not `...`/`Profilbild`), plus description and hashtags when present.
+- An incremental ZIP holds the complete `profile.md`/`.html`, like the transcripts; links to photos saved earlier point to their full-ZIP names.
+- A changed profile text counts as new: the saved record keeps a fingerprint of it, and a change alone gives a ZIP with the profile files (plus transcripts and `skipped.txt`).
+- "Steckbrief" and "Vorlieben" stay out (enum keys only; backlog).
+
 ```text
 <Owner>/
 ├── profile.md          NEW  profile text, then one section per album:
-│                            description, photo list (caption → relative file link)
+│                            description, photo list (caption, hashtags → relative file link)
+├── profile.html        NEW  the same as a web page, like conversation.html
 ├── <Album>/…
 ├── ClubMail/…
 └── skipped.txt
@@ -220,9 +229,9 @@ ClubMail video attachments are not affected. They already land in `ClubMail/` as
 
 ### `profile.md` in the profile ZIP only
 
-- **Decision:** Markdown at the ZIP root, profile ZIP only.
-- **Reason:** The ClubMail-only ZIP is about the conversation, not the profile.
-- **Trade-offs:** Rejected: an HTML variant now (YAGNI, can follow the transcript pattern later).
+- **Decision:** `profile.md` and `profile.html` at the ZIP root, profile ZIP only.
+- **Reason:** The ClubMail-only ZIP is about the conversation, not the profile. The HTML version matches `conversation.html` (user decision 2026-10-09, replacing the earlier "Markdown only").
+- **Trade-offs:** One more renderer to test; it follows the transcript pattern (escape every value, nothing remote).
 
 ### Videos only as plain files
 
