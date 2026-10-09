@@ -13,7 +13,7 @@ const ALBUM_LIST = listResult({
   main: ['101'],
   albums: [
     { id: '201', title: 'Aktuelles', ids: ['102'] },
-    { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
+    { id: '202', title: 'Lady', restricted: true, imageCount: 9, restrictionReason: 'NEEDS_PERMISSION_BY_OWNER' },
   ],
 });
 const GREETING = textMessage('10', { from: ME, content: 'Hi <img class="joy_smiley" src="//cfnimg.joyclub.de/smile/x.gif" alt=":-)"> &amp; <a href="javascript:alert(1)">bye</a>' });
@@ -224,7 +224,7 @@ test('a failing ClubMail API still saves the album ZIP and warns', async ({ page
   const result = await clickAction(serviceWorker);
 
   expect(await zipEntries(serviceWorker, result)).not.toContain('ClubMail/');
-  expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos)\nClubMail: unavailable\n');
+  expect(await zipText(serviceWorker, result, 'skipped.txt')).toBe('Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n');
   expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
   expect(await badgeColor(serviceWorker)).toEqual(WARNING_COLOR_RGBA);
 });

@@ -140,7 +140,7 @@ describe('toAlbumZipRequest', () => {
   test('lists a restricted album in skipped.txt and gives it no folder', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE);
     assert.deepEqual(folders(request), ['Fotos-von-uns', 'Aktuelles']);
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
   });
 
   test('lists several restricted albums in API order', () => {
@@ -263,13 +263,13 @@ describe('toAlbumZipRequest with ClubMail', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE, { origin: ORIGIN, messages: [] });
 
     assert.deepEqual(folders(request), ['Fotos-von-uns', 'Aktuelles']);
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
   });
 
   test('a failed ClubMail fetch adds "ClubMail: unavailable" to skipped.txt and flags it', () => {
     const request = toAlbumZipRequest(albumRaw(), DATE, { failed: true });
 
-    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\nClubMail: unavailable\n' }]);
+    assert.deepEqual(request.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n' }]);
     assert.equal(request.clubMailFailed, true);
   });
 
@@ -426,11 +426,37 @@ describe('toClubMailZipRequest', () => {
 });
 
 describe('skippedReport', () => {
-  test('writes one line per album with a trailing newline', () => {
+  test('writes one line per album without a reason, with a trailing newline', () => {
     assert.equal(skippedReport([{ title: 'Lady', imageCount: 9 }]), 'Lady (9 photos)\n');
   });
 
-  test('trims trailing spaces from the title', () => {
+  test('appends the restriction reason after a colon', () => {
+    assert.equal(skippedReport([{ title: 'Lady', imageCount: 9, restrictionReason: 'NEEDS_PERMISSION_BY_OWNER' }]), 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n');
+  });
+
+  for (const reason of ['INSUFFICIENT_MEMBERSHIP', 'NEEDS_PERMISSION_BY_OWNER', 'NEEDS_VERIFICATION', 'SOME_FUTURE_REASON']) {
+    test(`writes the reason ${reason} raw`, () => {
+      assert.equal(skippedReport([{ title: 'A', imageCount: 1, restrictionReason: reason }]), `A (1 photos): ${reason}\n`);
+    });
+  }
+
+  for (const [label, restrictionReason] of [['missing', undefined], ['null', null], ['empty', ''], ['whitespace-only', '  ']]) {
+    test(`a ${label} reason gives no suffix`, () => {
+      assert.equal(skippedReport([{ title: 'A', imageCount: 1, restrictionReason }]), 'A (1 photos)\n');
+    });
+  }
+
+  test('trims a padded reason', () => {
+    assert.equal(skippedReport([{ title: 'A', imageCount: 1, restrictionReason: ' NEEDS_VERIFICATION ' }]), 'A (1 photos): NEEDS_VERIFICATION\n');
+  });
+
+  test('mixes lines with and without reason in API order', () => {
+    const albums = [{ title: 'A', imageCount: 1, restrictionReason: 'NEEDS_VERIFICATION' }, { title: 'B', imageCount: 2 }];
+
+    assert.equal(skippedReport(albums), 'A (1 photos): NEEDS_VERIFICATION\nB (2 photos)\n');
+  });
+
+  test('trims trailing spaces from the title without a reason', () => {
     assert.equal(skippedReport([{ title: 'Sie  ', imageCount: 1 }]), 'Sie (1 photos)\n');
   });
 
@@ -527,6 +553,13 @@ describe('fetchProfileAlbums', () => {
     assert.deepEqual(list.body.variables, { id: USER_ID });
     assert.equal(sources.body.operationName, 'getProfileAlbumImageSources');
     assert.deepEqual(sources.body.variables, { idList: ['101', '102'] });
+  });
+
+  test('asks for restrictionReason on restricted albums', async () => {
+    await run(fetchProfileAlbums(USER_ID));
+
+    const [, list] = fetchCalls;
+    assert.match(list.body.query, /ProfileRestrictedRegularAlbum \{[^}]*restrictionReason/);
   });
 
   test('every fetch gets an AbortSignal', async () => {

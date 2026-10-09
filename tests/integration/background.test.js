@@ -488,7 +488,7 @@ describe('profile ZIP', () => {
     const result = await handleActionClick(PROFILE_TAB);
 
     assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
-    assert.equal(callsNamed('sendMessage').at(-1).reports[0].text, 'Lady (9 photos)\nClubMail: unavailable\n');
+    assert.equal(callsNamed('sendMessage').at(-1).reports[0].text, 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nClubMail: unavailable\n');
     assert.equal(lastBadgeText(), '!');
     assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
     assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
@@ -532,7 +532,7 @@ describe('profile ZIP', () => {
       'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
       'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     ]);
-    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
+    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
     assert.match(options.filename, /^TestOwner\.zip$/);

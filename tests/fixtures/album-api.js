@@ -9,13 +9,13 @@ export const sourceListJson = (base, uuid, key = 'k') => JSON.stringify([
   { mimeType: 'image/jpeg', sourceSet: SIZES.map((w) => ({ width: w, path: `${base}/${uuid}/orig/image_${w}_${key}.jpg?cache=c` })) },
 ]);
 
-// albums: [{ id, title, ids } | { id, title, restricted: true, imageCount }]
+// albums: [{ id, title, ids } | { id, title, restricted: true, imageCount, restrictionReason? }]
 export function listResult({ main = [], albums = [] }) {
   return {
     __typename: 'ProfileAlbumListByUserIdSuccess',
     mainAlbum: { userImageIdList: main },
     regularAlbumResultList: albums.map((album) => (album.restricted
-      ? { __typename: 'ProfileRestrictedRegularAlbum', id: album.id, title: album.title, imageCount: album.imageCount }
+      ? { __typename: 'ProfileRestrictedRegularAlbum', id: album.id, title: album.title, imageCount: album.imageCount, restrictionReason: album.restrictionReason }
       : { __typename: 'ProfilePublicRegularAlbum', id: album.id, title: album.title, userImageIdList: album.ids })),
   };
 }
@@ -39,7 +39,7 @@ export function albumRaw(overrides = {}) {
       main: ['101'],
       albums: [
         { id: '201', title: 'Aktuelles', ids: ['102'] },
-        { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
+        { id: '202', title: 'Lady', restricted: true, imageCount: 9, restrictionReason: 'NEEDS_PERMISSION_BY_OWNER' },
       ],
     }),
     sources: sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: testUuid(2) }]),
