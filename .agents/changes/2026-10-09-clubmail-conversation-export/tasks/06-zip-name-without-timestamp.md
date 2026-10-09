@@ -21,7 +21,8 @@ Follow-up (2026-10-09): ZIP names and their top folders drop the timestamp: `<Ow
 
 * [x] Profile ZIP is `<Owner>.zip`, ClubMail-only ZIP `<Partner>_ClubMail.zip`, each with the matching top folder
   **Note:** Unit tests in `profile.test.js`; integration tests check the filename and `root`; E2E asserts the exact filenames and that every entry lies below `<zip name>/`.
-* [ ] A second export of the same profile is saved as `<Owner> (1).zip` (manual testing required: Playwright saves downloads under GUID names, so the on-disk name is not observable)
+* [x] A second export of the same profile is saved as `<Owner> (1).zip`
+  **Note:** Checked manually by the user (2026-10-09); not automatable, Playwright saves downloads under GUID names.
 * [x] `npm test` and `npm run test:e2e` pass
   **Note:** 377 unit/integration tests and 13 E2E tests pass.
 
