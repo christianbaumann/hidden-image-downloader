@@ -82,6 +82,10 @@ describe('toFullSizeUrl', () => {
     assert.equal(toFullSizeUrl(`${UUID_PATH}/orig/image_180_t9.webp`), `${UUID_PATH}/orig/image_1920_t9.jpg`);
   });
 
+  test('returns null for a pixelated FSK18 variant, whose full size has another token', () => {
+    assert.equal(toFullSizeUrl(`${UUID_PATH}/orig/image_180_pxl_GB2iW.jpg`), null);
+  });
+
   test('returns null for a full-size image', () => {
     assert.equal(toFullSizeUrl(`${UUID_PATH}/orig/image_1920_B5Csj.webp?cache=x`), null);
   });

@@ -94,6 +94,13 @@ describe('toDownloadCandidates', () => {
     ]);
   });
 
+  test('offers full size, jpg sibling and the served webp of a webp crop', () => {
+    const crop = `${IMAGE_BASE}/${testUuid(2)}/1-1/image_720_k.webp?cache=c`;
+    assert.deepEqual(imageCandidates(crop, { owner: 'TestOwner' }).map(({ url }) => url), [
+      `${IMAGE_BASE}/${testUuid(2)}/orig/image_1920_k.jpg`, crop.replace('.webp', '.jpg'), crop,
+    ]);
+  });
+
   test('keeps the served size of a gated image', () => {
     const crop = `${IMAGE_BASE}/${testUuid(2)}/1-1/image_720_k.jpg?cache=c`;
     assert.deepEqual(imageCandidates(crop, { owner: 'TestOwner', gated: true }).map(({ url }) => url), [crop]);

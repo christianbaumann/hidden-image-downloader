@@ -440,7 +440,21 @@ describe('jpg probe', () => {
 
     await handleActionClick(TAB);
 
-    assert.deepEqual(console.warn.mock.calls.map((call) => call.arguments), [['jpg probe failed']]);
+    assert.deepEqual(console.warn.mock.calls.map((call) => call.arguments), [['probe failed']]);
+  });
+
+  test('a missing full size falls back to the jpg sibling of a crop', async () => {
+    const crop = 'https://image-user.feig-partner.de/00000002-1111-4111-8111-111111111111/1-1/image_720_k.webp?c=1';
+    const fullSize = 'https://image-user.feig-partner.de/00000002-1111-4111-8111-111111111111/orig/image_1920_k.jpg';
+    const cropJpg = crop.replace('.webp', '.jpg');
+    executeScript = async () => [{ result: { ...VALID_DATA, style: `background-image: url("${crop}")` } }];
+    fetchImpl = async (url) => (url === fullSize ? { ok: false, status: HTTP_NOT_FOUND } : { ok: true, status: HTTP_OK });
+
+    const result = await handleActionClick(TAB);
+
+    assert.deepEqual(callsNamed('fetch').map(({ url }) => url), [fullSize, cropJpg]);
+    assert.equal(result.url, cropJpg);
+    assert.equal(callsNamed('download')[0].url, cropJpg);
   });
 
   test('suggests the webp filename after a fallback', async () => {

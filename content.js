@@ -34,11 +34,15 @@ function containsPoint(element, { x, y }) {
 function elementsUnder(point) {
   const hit = document.elementsFromPoint(point.x, point.y)
     .filter((element) => element !== document.body && element !== document.documentElement);
-  const seen = new Set(hit);
+  const checked = new Set(hit);
   return hit.flatMap((element) => {
-    const hidden = [...element.querySelectorAll('*')].filter((child) => !seen.has(child)
-      && window.getComputedStyle(child).visibility !== 'hidden' && containsPoint(child, point));
-    hidden.forEach((child) => seen.add(child));
+    const hidden = [...element.querySelectorAll('*')].filter((child) => {
+      if (checked.has(child)) {
+        return false;
+      }
+      checked.add(child);
+      return containsPoint(child, point) && window.getComputedStyle(child).visibility !== 'hidden';
+    });
     return [...hidden.reverse(), element];
   });
 }

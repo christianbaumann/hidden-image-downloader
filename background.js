@@ -152,7 +152,7 @@ async function firstAvailable(candidates, log) {
       }
     } catch (error) {
       log.add('probe', { reason: error.name, url: candidate.url });
-      console.warn('jpg probe failed');
+      console.warn('probe failed');
     }
   }
   return candidates.at(-1);

@@ -8,7 +8,7 @@ It runs in Chrome only and on JoyClub only (`www.joyclub.de`, `www.joyclub.com`)
 
 1. Load the extension unpacked via `chrome://extensions` (developer mode).
 2. Open a photo in the JoyClub lightbox.
-3. Click the toolbar icon. The image is saved to the default download folder as `<Owner>_<photo-id>.<ext>`, with `<photo-id>` as in the profile ZIP (first 8 characters of the photo's ID, else JoyClub's photo number). When album title and position are known, the name is `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as the photo's name in the profile ZIP. A repeat download gets Chrome's usual ` (1)`. A `.webp` image is saved as the site's `.jpg` version; if that is missing or does not answer within 5 s, the `.webp` is saved instead.
+3. Click the toolbar icon. The image is saved to the default download folder as `<Owner>_<photo-id>.<ext>`, with `<photo-id>` as in the profile ZIP (first 8 characters of the photo's ID, else JoyClub's photo number). When album title and position are known, the name is `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as the photo's name in the profile ZIP. A repeat download gets Chrome's usual ` (1)`. A smaller or cropped image is saved as the photo's full-size `.jpg` when JoyClub has one. A `.webp` image is saved as the site's `.jpg` version; if that is missing or does not answer within 5 s, the `.webp` is saved instead.
 
 ### Context menu: "Save hidden image"
 

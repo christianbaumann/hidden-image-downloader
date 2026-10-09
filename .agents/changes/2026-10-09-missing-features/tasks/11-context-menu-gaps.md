@@ -41,6 +41,17 @@ Close the known limitations of the "Save hidden image" menu found in the task 05
 * [x] A feed crop is saved at full size; a gated photo at its served size
   * **Note:** Verified via `tests/unit/image-url.test.js` › `toFullSizeUrl`, `tests/unit/lightbox.test.js`, `tests/unit/hidden-image.test.js` and `tests/e2e/download.spec.js` › "… feed member card …" / "… behind the FSK18 gate"; live 2026-10-09: member card and status-message photo → `orig/image_1920_….jpg`, gated photo → served `orig/image_180_pxl_….jpg`.
 * [x] `npm test` and `npm run test:e2e` pass
-  * **Note:** `npm test` 505 pass, `npm run test:e2e` 21 pass
+  * **Note:** after the review fixes: `npm test` 508 pass, `npm run test:e2e` 21 pass
+
+## Review (2026-10-09)
+
+No correctness bug. Fixed:
+* `elementsUnder` re-checked descendants once per hit ancestor (`getComputedStyle` first): now each node is checked once, `containsPoint` before `getComputedStyle`.
+* Pixelated FSK18 variants (`image_<w>_pxl_<token>`) got a full-size probe that always fails (the unlocked photo has another token): `toFullSizeUrl` returns `null` for them.
+* The probe warning said "jpg probe failed" for the full-size probe too: now "probe failed".
+* Tests for the probe chain (full size 404 → jpg sibling) and the three candidates of a `.webp` crop.
+* README (toolbar step) and CLAUDE.md (probe chain, a split sentence in the menu bullet).
+
+Not verified live: whether the album page's `a.album-link` order and count match the API's `userImageIdList` (needs a live session).
 * [x] A failing `describeImageLayers` gives "image address not found"
   * **Note:** Code review only: the content script runs in an isolated world, so a test cannot make it throw; `null` → "image address not found" is covered by the integration test "no image below the pointer shows …".
