@@ -43,14 +43,14 @@ Target:
 ZIP content:
 
 ```text
-<Owner>_<timestamp>.zip                 (profile click)
+<Owner>.zip                             (profile click)
 ├── <Album>/…
 └── ClubMail/
     ├── conversation.md                 new
     ├── conversation.html               new
     └── <Owner>_ClubMail_<NN>_<attach_id>.<ext>
 
-<Partner>_ClubMail_<timestamp>.zip      (conversation click, new)
+<Partner>_ClubMail.zip                  (conversation click, new)
 └── ClubMail/                           same content as above
 ```
 
@@ -87,7 +87,7 @@ Checked against a real session (4 read conversations, 67 messages) with Playwrig
 
 ### Trigger on an open conversation
 
-- **Decision:** A click on a conversation URL saves a ClubMail-only ZIP (`<Partner>_ClubMail_<timestamp>.zip`). `clubMailConversationIds(url)` runs before `profileUserId(url)`. The profile path stays the same and also gets the transcripts.
+- **Decision:** A click on a conversation URL saves a ClubMail-only ZIP (`<Partner>_ClubMail.zip`). `clubMailConversationIds(url)` runs before `profileUserId(url)`. The profile path stays the same and also gets the transcripts.
 - **Reason:** In a conversation the user wants the conversation. It skips the album API, the 3 s title wait and the photo fetches.
 - **Trade-offs:** Rejected: the full profile ZIP from a conversation page (slow, needs the partner id first) and loose files without a ZIP (relative links break).
 

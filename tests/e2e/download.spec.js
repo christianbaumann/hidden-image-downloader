@@ -158,7 +158,7 @@ test('downloads every accessible album into its own folder', async ({ page, serv
 
   const result = await clickAction(serviceWorker);
 
-  expect(result.filename).toMatch(/^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+  expect(result.filename).toBe('TestOwner.zip');
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'Aktuelles/',
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
@@ -252,7 +252,7 @@ test('an open conversation saves a ClubMail-only ZIP named after the partner', a
 
   const result = await clickAction(serviceWorker);
 
-  expect(result.filename).toMatch(/^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+  expect(result.filename).toBe('TestOwner_ClubMail.zip');
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',

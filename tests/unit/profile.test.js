@@ -109,8 +109,8 @@ describe('toAlbumZipRequest', () => {
     ]);
   });
 
-  test('names the ZIP <owner>_<timestamp>.zip', () => {
-    assert.equal(toAlbumZipRequest(albumRaw(), DATE).zipName, 'TestOwner_2026-10-08_174500.zip');
+  test('names the ZIP <owner>.zip', () => {
+    assert.equal(toAlbumZipRequest(albumRaw(), DATE).zipName, 'TestOwner.zip');
   });
 
   test('has no reports without restricted albums', () => {
@@ -218,13 +218,13 @@ describe('toAlbumZipRequest', () => {
 
   test('falls back to unknown for an empty owner', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'], owner: '' }), DATE);
-    assert.match(request.zipName, /^unknown_/);
+    assert.equal(request.zipName, 'unknown.zip');
     assert.equal(names(request)[0], `Fotos-von-uns/unknown_Fotos-von-uns_01_${keyOf(1)}.jpg`);
   });
 
   test('sanitises the owner', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'], owner: 'Rück/Seite ' }), DATE);
-    assert.match(request.zipName, /^Rück_Seite_2026/);
+    assert.match(request.zipName, /^Rück_Seite\.zip$/);
   });
 
   test('skips an empty main album', () => {
@@ -346,8 +346,8 @@ describe('toClubMailZipRequest', () => {
     messages: [textMessage('10', { from: ME, content: 'Hi' }), attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2')],
   };
 
-  test('names the ZIP <partner>_ClubMail_<timestamp>.zip', () => {
-    assert.equal(toClubMailZipRequest(RAW, DATE).zipName, 'TestOwner_ClubMail_2026-10-08_174500.zip');
+  test('names the ZIP <partner>_ClubMail.zip', () => {
+    assert.equal(toClubMailZipRequest(RAW, DATE).zipName, 'TestOwner_ClubMail.zip');
   });
 
   test('takes the partner name even when the user wrote first', () => {
@@ -372,13 +372,13 @@ describe('toClubMailZipRequest', () => {
   test('falls back to unknown when the partner wrote nothing', () => {
     const request = toClubMailZipRequest({ ...RAW, messages: [textMessage('10', { from: ME })] }, DATE);
 
-    assert.equal(request.zipName, 'unknown_ClubMail_2026-10-08_174500.zip');
+    assert.equal(request.zipName, 'unknown_ClubMail.zip');
   });
 
   test('sanitises the partner name', () => {
     const messages = [textMessage('10', { from: { id: PARTNER.id, name: 'A/B: C' } })];
 
-    assert.match(toClubMailZipRequest({ ...RAW, messages }, DATE).zipName, /^A_B_-C_ClubMail_/);
+    assert.match(toClubMailZipRequest({ ...RAW, messages }, DATE).zipName, /^A_B_-C_ClubMail\.zip$/);
   });
 
   test('throws ClubMailApiError for a failed or malformed result', () => {

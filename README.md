@@ -12,7 +12,7 @@ Currently supports JoyClub (`www.joyclub.de`, `www.joyclub.com`) in Chrome only.
 
 ### Profile photos
 
-On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…`) or one of its albums (`/profile/fotoalbum/…`), the click saves every photo of every album you can see as one ZIP, `<Owner>_<YYYY-MM-DD_HHmmss>.zip`. Everything in the ZIP sits in one top folder named like the ZIP (`<Owner>_<YYYY-MM-DD_HHmmss>/`), so it extracts into that folder with every unzip tool. This applies even with a lightbox open there; use the lightbox on other pages for single photos.
+On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…`) or one of its albums (`/profile/fotoalbum/…`), the click saves every photo of every album you can see as one ZIP, `<Owner>.zip`. Everything in the ZIP sits in one top folder named like the ZIP (`<Owner>/`), so it extracts into that folder with every unzip tool. A second download of the same profile gets Chrome's usual `<Owner> (1).zip`. This applies even with a lightbox open there; use the lightbox on other pages for single photos.
 
 - Each album gets its own folder, named after the album title. Duplicate names get `-2`, `-3`, …
 - The main album folder takes the title of its card ("Fotos von uns" → `Fotos-von-uns`). On an album page there is no such card, so the click waits about 3 s and names the folder `Hauptalbum`; the same happens if the card title cannot be read.
@@ -25,7 +25,7 @@ On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…
 
 ### ClubMail conversation
 
-On an open ClubMail conversation (`/clubmail/conversation/conversation-wrapper-personal-<id>-<id>/`), the click saves only that conversation as `<Partner>_ClubMail_<YYYY-MM-DD_HHmmss>.zip`: inside the top folder `<Partner>_ClubMail_<YYYY-MM-DD_HHmmss>/`, the `ClubMail/` folder with the attachments, `conversation.md` and `conversation.html`, as described above. It skips the album list. The badge shows `0%` → `10%` while the conversation loads, then the attachment count. If the conversation cannot be read, nothing is saved and the badge turns red with the tooltip "ClubMail unavailable"; an empty conversation shows "no lightbox image or profile photos found". A conversation without attachments gives a ZIP with only the two transcripts. The conversation is not marked as read.
+On an open ClubMail conversation (`/clubmail/conversation/conversation-wrapper-personal-<id>-<id>/`), the click saves only that conversation as `<Partner>_ClubMail.zip`: inside the top folder `<Partner>_ClubMail/`, the `ClubMail/` folder with the attachments, `conversation.md` and `conversation.html`, as described above. It skips the album list. The badge shows `0%` → `10%` while the conversation loads, then the attachment count. If the conversation cannot be read, nothing is saved and the badge turns red with the tooltip "ClubMail unavailable"; an empty conversation shows "no lightbox image or profile photos found". A conversation without attachments gives a ZIP with only the two transcripts. The conversation is not marked as read.
 
 You need to be logged in on the domain you are browsing (`joyclub.de` or `joyclub.com`): the extension reads the album list and the ClubMail conversation through JoyClub's own API with that session. If the album list cannot be read, the badge says "album list unavailable".
 

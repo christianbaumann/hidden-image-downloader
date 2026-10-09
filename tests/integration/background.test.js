@@ -535,7 +535,7 @@ describe('profile ZIP', () => {
     assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }]);
     const [options] = callsNamed('download');
     assert.equal(options.url, BLOB_URL);
-    assert.match(options.filename, /^TestOwner_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.match(options.filename, /^TestOwner\.zip$/);
     assert.equal(`${build.root}.zip`, options.filename);
     assert.deepEqual(result, {
       url: BLOB_URL, filename: options.filename, downloadId: ZIP_DOWNLOAD_ID, added: 2, missing: [],
@@ -803,7 +803,7 @@ describe('ClubMail conversation ZIP', () => {
     const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
     assert.deepEqual(build.entries.map(({ name }) => name), ['ClubMail/TestOwner_ClubMail_01_a1.jpg']);
     assert.deepEqual(build.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
-    assert.match(result.filename, /^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.match(result.filename, /^TestOwner_ClubMail\.zip$/);
     assert.equal(`${build.root}.zip`, result.filename);
     assert.equal(lastBadgeText(), '');
   });
@@ -816,7 +816,7 @@ describe('ClubMail conversation ZIP', () => {
     const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
     assert.deepEqual(build.entries, []);
     assert.equal(build.reports.length, 2);
-    assert.match(result.filename, /^TestOwner_ClubMail_/);
+    assert.match(result.filename, /^TestOwner_ClubMail\.zip$/);
   });
 
   test('the API phase shows 0 % and then 10 %', async () => {

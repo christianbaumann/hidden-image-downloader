@@ -24,7 +24,8 @@ Follow-up from use (2026-10-09): the ClubMail-only ZIP extracted to a bare `Club
   **Note:** Unit test `puts entries, reports and missing.txt into the root folder`; integration test checks `root` + `.zip` equals the filename; every E2E ZIP test asserts all entries lie below `<zip name>/`.
 * [x] ClubMail-only ZIP: `<Partner>_ClubMail_<timestamp>/ClubMail/…`
   **Note:** Integration test `builds a ClubMail-only ZIP named after the partner`; E2E conversation test.
-* [ ] Extracting both ZIPs in Finder gives `<zip name>/ClubMail/…` (manual testing required: Archive Utility behaviour)
+* [x] Extracting both ZIPs in Finder gives `<zip name>/ClubMail/…`
+  **Note:** Checked manually by the user in Finder (2026-10-09).
 * [x] `npm test` and `npm run test:e2e` pass
   **Note:** 377 unit/integration tests and 13 E2E tests pass.
 
