@@ -24,10 +24,13 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
   * **Note:** `body[data-session-fsk18-status]`: `"0"` locked, `"1"` unlocked (live). Locked also: `li.menu_agecheck_login` in the nav, links to `/webauth/activate/fsk18/?origin_url=<page>?close_on_open=true` (only the page, no photo id), `…/image_180_pxl_<token>` sources.
 * [x] How the unlock is stored: new cookie vs. server-side flag behind `FUP_sid` (compare cookie names before/after, no values); does it survive a new tab, a reload, the service worker?
   * **Note:** Server-side per session: cookie names unchanged after the unlock (`FUP_sid`, `FUP_sso_autologin`, `FUPlid`, `cf_clearance`, `__cf_bm`, `__zlcmid`); reloads keep it. The spike session used cookies exported from the user's browser, so it shares that session's unlock state.
-* [ ] Where the prompt ends: the redirect after a successful unlock (`/webauth/authenticated/` → `origin_url`?), so the extension can tell success from a closed tab
+* [-] Where the prompt ends: the redirect after a successful unlock (`/webauth/authenticated/` → `origin_url`?), so the extension can tell success from a closed tab
+  * **Note:** Not recorded yet. The prompt lives on `identity.joyclub.com`, which has its own session cookies (`SSOID`, `VID` on `.identity.joyclub.com`); a cookie export of `www.joyclub.de` lacks them, so the test browser gets "401 - Session abgelaufen" (and earlier 403 "Zugangsdaten zu oft fehlerhaft eingegeben"). The user's own Chrome has them, so the flow there should reach the password form. Needs an export that includes `identity.joyclub.com`.
+  * Chrome's saved passwords are not readable by extensions (`passwordsPrivate` is internal to Chrome's settings pages); Chrome autofill can fill the form, the user confirms.
 * [-] After the unlock: does a reloaded page serve full-size URLs; does the gated link's `ori`/target give the album and photo id; can the album API (`getProfileAlbumImageSources`) return the full-size source by id
   * **Note:** A reloaded page serves the photo with a different token at full size (`image_180_pxl_GB2iW` → `orig/image_1920_AWGiP`) and links it to its album (`#media_id_…`), so the pixelated URL cannot be converted; resume = reload, then read again. The gated link holds no photo id. Album API by id: not checked.
-* [ ] Profile ZIP: does the album API withhold or pixelate 18+ photos while locked (compare one profile locked vs. unlocked)
+* [-] Profile ZIP: does the album API withhold or pixelate 18+ photos while locked (compare one profile locked vs. unlocked)
+  * **Note:** Locked (live 2026-10-09, user 9032962 "Alhe123", 7 photos): `getProfileAlbumImageSources` answers `ProfileAlbumImageSourceSuccessResult` for all, but 6 have only `orig/image_180_pxl_<token>` as widest source, so the profile ZIP silently saves pixelated 180 px images. The toolbar ZIP needs the unlock check too. Unlocked comparison pending.
 
 ## Work
 
