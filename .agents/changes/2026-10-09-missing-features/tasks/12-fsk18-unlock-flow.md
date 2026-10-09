@@ -18,11 +18,15 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 
 ## Spike (live session, the user types the password)
 
-* [ ] Which BitPaerchen content is 18+ and opens the prompt (URL), and whether `/login/agecheck.html` is the better trigger
-* [ ] Lock signal without loading 18+ content: gated links on the page, a page attribute, an API field
-* [ ] How the unlock is stored: new cookie vs. server-side flag behind `FUP_sid` (compare cookie names before/after, no values); does it survive a new tab, a reload, the service worker?
+* [x] Which BitPaerchen content is 18+ and opens the prompt (URL), and whether `/login/agecheck.html` is the better trigger
+  * **Note:** Live 2026-10-09: BitPaerchen's own albums are never gated for BitPaerchen (all `orig/image_1920`, no FSK18 links), so own content cannot trigger the prompt. The trigger is the nav item "FSK18 Freischaltung" (`li.menu_agecheck_login` → `/login/agecheck.html`), which shows "FSK18-Inhalte sind aktuell freigeschaltet" once unlocked. Deviation from the user's choice, to confirm.
+* [x] Lock signal without loading 18+ content: gated links on the page, a page attribute, an API field
+  * **Note:** `body[data-session-fsk18-status]`: `"0"` locked, `"1"` unlocked (live). Locked also: `li.menu_agecheck_login` in the nav, links to `/webauth/activate/fsk18/?origin_url=<page>?close_on_open=true` (only the page, no photo id), `…/image_180_pxl_<token>` sources.
+* [x] How the unlock is stored: new cookie vs. server-side flag behind `FUP_sid` (compare cookie names before/after, no values); does it survive a new tab, a reload, the service worker?
+  * **Note:** Server-side per session: cookie names unchanged after the unlock (`FUP_sid`, `FUP_sso_autologin`, `FUPlid`, `cf_clearance`, `__cf_bm`, `__zlcmid`); reloads keep it. The spike session used cookies exported from the user's browser, so it shares that session's unlock state.
 * [ ] Where the prompt ends: the redirect after a successful unlock (`/webauth/authenticated/` → `origin_url`?), so the extension can tell success from a closed tab
-* [ ] After the unlock: does a reloaded page serve full-size URLs; does the gated link's `ori`/target give the album and photo id; can the album API (`getProfileAlbumImageSources`) return the full-size source by id
+* [-] After the unlock: does a reloaded page serve full-size URLs; does the gated link's `ori`/target give the album and photo id; can the album API (`getProfileAlbumImageSources`) return the full-size source by id
+  * **Note:** A reloaded page serves the photo with a different token at full size (`image_180_pxl_GB2iW` → `orig/image_1920_AWGiP`) and links it to its album (`#media_id_…`), so the pixelated URL cannot be converted; resume = reload, then read again. The gated link holds no photo id. Album API by id: not checked.
 * [ ] Profile ZIP: does the album API withhold or pixelate 18+ photos while locked (compare one profile locked vs. unlocked)
 
 ## Work
