@@ -40,7 +40,7 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 * Unlock: open `/login/agecheck.html` in an inactive tab; on the `identity.joyclub.com/ui/fsk18` form, fill the stored password and submit (`executeScript`, needs the host permission `https://identity.joyclub.com/*`); success = the tab is back on `www.joyclub.de` with status `"1"` within a timeout; then close the tab.
 * One attempt per click, no retry: a wrong password or the 403 rate limit ends with a red badge ("18+ unlock failed") and a log, so the extension never locks the account. No stored password → the unlock tab opens active for manual entry (fallback).
 * Toolbar ZIP: check and unlock before the album API calls; the API serves full-size sources afterwards without a reload.
-* Context menu: a page loaded while locked holds pixelated URLs, and a reload loses the right-click position. So the extension unlocks proactively: when a JoyClub page reports status `"0"` and a password is stored, it unlocks once and reloads that tab. A menu click on a gated layer that still happens (no password stored) gets "unlock 18+ first" instead of saving a pixelated image.
+* Context menu: a page loaded while locked holds pixelated URLs, and a reload loses the right-click position. So the extension unlocks proactively: when a JoyClub page reports status `"0"` and a password is stored, it unlocks once and reloads that tab (confirmed by the user 2026-10-09). A menu click on a gated layer that still happens (no password stored) gets "unlock 18+ first" instead of saving a pixelated image.
 
 ## Spike 2 (needs a locked session: log out/in, export `www.joyclub.de` and `identity.joyclub.com` cookies)
 
