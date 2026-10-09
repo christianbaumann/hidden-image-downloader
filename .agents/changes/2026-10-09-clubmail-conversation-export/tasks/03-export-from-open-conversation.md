@@ -54,4 +54,9 @@ A click on an open ClubMail conversation saves `<Partner>_ClubMail_<timestamp>.z
   * `ClubMailApiError` lives in `lib/profile.js` next to `AlbumApiError`; `toClubMailZipRequest` too, since it reuses `transcriptReports`.
   * The API-phase tooltip stays "loading album list and ClubMail" on a conversation page (design: no progress changes).
 * Review fixes: the partner name skips nameless messages; integration test for a conversation without attachments.
-* Manual (needs a real JoyClub session, listed in README "Manual checks"): real conversation with replies, smileys and links, `conversation.html` offline; an unread conversation stays unread.
+* Live check 2026-10-09 (headed Chromium via `playwright-cli`, extension loaded, the user's session cookies), two real conversations:
+  * ZIP names `<Partner>_ClubMail_<timestamp>.zip`; only `ClubMail/` (5 and 9 attachments, both transcripts); no attachment missing; badge cleared.
+  * Transcripts match the raw API: 58/54 messages, 8/0 replies (8 blockquotes), 4/5 http(s) links kept, smileys as text (no remote `src`), 3 messages without `from_user_name` still attributed.
+  * `conversation.html` opened from `file://` with all network aborted: 5/5 and 9/9 images load, 0 requests attempted; layout and reply quote checked on screenshots.
+  * Unread: the UI's own `read_conversation` call on opening the page was aborted; the extension click sent none (0 after the click), and the unread conversation stayed unread.
+  * Not checkable here: the ZIP name on disk in a normal Chrome (Playwright saves under GUID names).
