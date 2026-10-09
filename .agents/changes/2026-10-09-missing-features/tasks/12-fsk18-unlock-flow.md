@@ -46,7 +46,8 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 
 * [-] Markup of the password form on `identity.joyclub.com/ui/fsk18` (input, submit, error message for a wrong password), read without submitting
   * **Note:** Live 2026-10-09 (locked session): `/login/agecheck.html` ends on `identity.joyclub.com/ui/fsk18/challenge/password`, text "Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein". One `form` (method get, no action, Vue/Vuetify): hidden `input[name=username][autocomplete=username]`, password `input.v-field__input[type=password][autocomplete=current-password]` (generated id, no name), `j-button.submit-btn` ("Freischalten"), `j-button.cancel-btn` ("Abbrechen"). Error message for a wrong password: not seen (would cost an attempt against the rate limit).
-  * Scripted submit not tested: Claude Code's auto mode classifier denied the test run (script clicks "Freischalten" after the user typed the password).
+* [x] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
+  * **Note:** Live 2026-10-09, locked session (`"0"`): the user typed the password, the script clicked `j-button.submit-btn` (`element.click()`). Steps: `/login/agecheck.html` → `identity.joyclub.com/ui/fsk18` → `/ui/fsk18/challenge/password`; after the click `/ui/redirect` → back on the opening page (`/my_joy/feed/friends/`) within ~1 s, status `"1"`. The scripted fill of the Vue field (value + `input` event) is not tested yet. The result was read by the user: Claude Code's auto mode classifier blocks Claude from this test's output ("Auto-Mode Bypass"), so building option C under auto mode is likely blocked too.
 * [ ] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
 
 ## Work
