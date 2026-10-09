@@ -157,6 +157,19 @@ HLS or DRM       not downloaded; "Videos: <n> not supported (<format>)" in skipp
 no videos found  slice ends, backlog note
 ```
 
+Spike result (task 09, [`research-09-profile-videos.md`](research-09-profile-videos.md)): every profile video is unencrypted HLS VOD (MPEG-TS, H.264/AAC), no mp4. User decision 2026-10-09: download them anyway.
+
+```text
+video kind            action
+──────────────────    ──────────────────────────────────────────────────────────
+unencrypted HLS VOD   highest rendition's segments → remux to mp4 (vendored mux.js)
+                      → Videos/<Owner>_Videos_<nn>_<id>.mp4, counted in the progress badge
+encrypted / DRM       not downloaded; "Videos: <n> not supported (<format>)" in skipped.txt
+not playable          (locked FSK18 session, owner restriction) per the follow-up spike checks
+```
+
+Open until the follow-up checks (second profile, locked session) are done: where segments are fetched (tab vs. offscreen with the per-video CloudFront cookies) and where the remux runs.
+
 ClubMail video attachments are not affected. They already land in `ClubMail/` as files.
 
 ## Key Decisions
@@ -233,11 +246,12 @@ ClubMail video attachments are not affected. They already land in `ClubMail/` as
 - **Reason:** The ClubMail-only ZIP is about the conversation, not the profile. The HTML version matches `conversation.html` (user decision 2026-10-09, replacing the earlier "Markdown only").
 - **Trade-offs:** One more renderer to test; it follows the transcript pattern (escape every value, nothing remote).
 
-### Videos only as plain files
+### Videos as mp4, also from HLS
 
-- **Decision:** mp4 files go into `Videos/`. HLS or DRM streams are listed in `skipped.txt`.
-- **Reason:** Joining stream segments is a different feature with its own failure modes.
-- **Trade-offs:** Streamed videos stay out of the archive.
+- **Decision (2026-10-09, after task 09):** profile videos go into `Videos/` as mp4. JoyClub serves only unencrypted HLS, so the extension fetches the highest rendition's segments and remuxes them to mp4 with a vendored `mux.js`. Encrypted or DRM streams are listed in `skipped.txt`.
+- **Reason:** No profile video is a plain file; the original rule ("HLS goes to `skipped.txt`") would have kept every video out of the archive.
+- **Trade-offs:** A new vendored runtime dependency and a remux step with its own failure modes; only the highest rendition is kept.
+- **Superseded:** "Videos only as plain files" (HLS streams listed in `skipped.txt`).
 
 ## Open questions (answered by the slices)
 

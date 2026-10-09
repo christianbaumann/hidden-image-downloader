@@ -59,6 +59,6 @@ Media playlist: `#EXT-X-PLAYLIST-TYPE:VOD`, `#EXTINF:4,` + `<name>_00001.ts` …
 
 ## Consequence for task 10
 
-The design (`design.md#videos-only-as-plain-files`) puts HLS into `skipped.txt`. With this result every profile video is HLS, so task 10 as designed reduces to the line `Videos: <n> not supported (HLS)` (count from `lightbox/list`).
+The original design ("Videos only as plain files") put HLS into `skipped.txt`. With this result every profile video is HLS, so task 10 as designed reduces to the line `Videos: <n> not supported (HLS)` (count from `lightbox/list`).
 
-Alternative, not designed: HLS here is unencrypted VOD with one TS stream per rendition, so the extension could fetch the highest rendition's segments and join them. Concatenated TS segments play in VLC but not in QuickTime; an `.mp4` needs a remux (e.g. vendored `mux.js`). This is the "different feature" the design ruled out; noted in `.agents/backlog.md`.
+Chosen instead: HLS here is unencrypted VOD with one TS stream per rendition, so the extension could fetch the highest rendition's segments and join them. Concatenated TS segments play in VLC but not in QuickTime; an `.mp4` needs a remux (e.g. vendored `mux.js`). User decision 2026-10-09: task 10 does this (highest rendition, mp4 via vendored `mux.js`); see `design.md#videos-as-mp4-also-from-hls`.

@@ -5,14 +5,14 @@ dependencies: []
 
 # Task 09: Spike: profile video format
 
-**Status:** Done, awaiting approval (2026-10-09). Result: `../research-09-profile-videos.md`. Every profile video is unencrypted HLS; no plain mp4. Task 10 as designed reduces to the `skipped.txt` line; the user decides whether to keep it that way or design an HLS download.
+**Status:** In progress (2026-10-09). Result so far: `../research-09-profile-videos.md`, every profile video is unencrypted HLS, no plain mp4. User decisions: task 10 downloads HLS as mp4; approval after a second live profile with videos and a check in a locked (FSK18) session.
 
 A research note states whether profiles have videos and how JoyClub serves them (mp4, HLS, DRM), so task 10 can be designed or dropped.
 
 ## References
 
 * `design.md#j-videos`
-* `design.md#videos-only-as-plain-files`
+* `design.md#videos-as-mp4-also-from-hls` (was `#videos-only-as-plain-files`)
 * `docs/agents/research/2026-10-08-jc-profile-slider-zip-download.md` ("Videos" slider)
 * `CLAUDE.md` ("Live check against a real session")
 
@@ -24,7 +24,9 @@ A research note states whether profiles have videos and how JoyClub serves them 
   * **Note:** Not GraphQL: `POST /video/lightbox/list` and `/video/lightbox/data` (form `cache_killer` + `data`), master playlist in `media_html`, per-video CloudFront cookies from `GET /aws/aws_signed_cookies`; playlists `application/vnd.apple.mpegurl`, segments `video/MP2T`, no `EXT-X-KEY`.
 * [x] Write `../research-09-profile-videos.md`: list source, format, sample request shapes (sanitised), access restrictions
 * [x] If no videos or only HLS/DRM: note it in `.agents/backlog.md`; task 10 reduces to the `skipped.txt` line or is dropped
-  * **Note:** Only HLS. Backlog entry "Profile videos as files" (join/remux as a separate feature). Task 10 status updated.
+  * **Note:** Only HLS. User decision 2026-10-09: task 10 downloads HLS as mp4 instead (`design.md#videos-as-mp4-also-from-hls`); the backlog entry is removed.
+* [ ] Confirm the format on a second live profile with videos
+* [ ] Repeat the list, data and playback calls in a session without FSK18 unlock (fresh login, password typed by the user); note what a locked session gets (blurred flag, source, cookies)
 
 ## Verification
 
