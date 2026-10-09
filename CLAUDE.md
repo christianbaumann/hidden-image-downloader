@@ -1,10 +1,10 @@
 # Project: Hidden Image Downloader
 
-A Chrome/Firefox extension that downloads images which websites hide behind a transparent GIF (or similar overlay), so the browser's own "Save image" grabs the overlay instead of the image.
+A Chrome extension that downloads images which JoyClub hides behind a transparent GIF (or similar overlay), so the browser's own "Save image" grabs the overlay instead of the image.
 
 ## Stack
 - **Language:** Vanilla JavaScript (no frameworks)
-- **Targets:** Chrome and Firefox, Manifest V3
+- **Targets:** Chrome, Manifest V3, JoyClub only. Firefox is not supported yet (see below).
 
 ## Conventions
 - No build step, no transpilation. Plain `.js` files loaded directly by the extension.

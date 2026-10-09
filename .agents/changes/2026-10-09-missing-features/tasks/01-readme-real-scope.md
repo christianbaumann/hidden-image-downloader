@@ -15,10 +15,12 @@ The README no longer promises Firefox or "many websites": it says the extension 
 
 ## Work
 
-* [ ] Rewrite the intro of `README.md`: Chrome only, JoyClub only, other browsers and sites not supported yet
-* [ ] Remove the remaining "Chrome and Firefox" claims
+* [x] Rewrite the intro of `README.md`: Chrome only, JoyClub only, other browsers and sites not supported yet
+* [x] Remove the remaining "Chrome and Firefox" claims
 
 ## Verification
 
-* [ ] `grep -niE 'firefox|many websites' README.md` finds no claim of support
-* [ ] `npm test` passes
+* [x] `grep -niE 'firefox|many websites' README.md` finds no claim of support
+  **Note:** Verified via grep: the only hit is README line 5, which states that Firefox is not supported. `CLAUDE.md` lines 3 and 7 ("Chrome/Firefox extension", "Targets: Chrome and Firefox") aligned too.
+* [x] `npm test` passes
+  **Note:** Verified via `npm test` (lint + 435 tests, 0 failures). Docs-only change, no E2E run.

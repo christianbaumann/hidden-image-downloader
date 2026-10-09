@@ -1,10 +1,10 @@
 # hidden-image-downloader
 
-Many websites hide images behind a transparent GIF, so downloading the image just doesn't work. This browser extension (Chrome and Firefox) downloads all such protected images.
+JoyClub hides its images behind a transparent GIF, so the browser's "Save image" saves the GIF instead of the image. This Chrome extension downloads the real images.
+
+It runs in Chrome only and on JoyClub only (`www.joyclub.de`, `www.joyclub.com`). Other browsers and sites are not supported yet; Firefox lacks `chrome.offscreen`, which the profile ZIP needs.
 
 ## Usage
-
-Currently supports JoyClub (`www.joyclub.de`, `www.joyclub.com`) in Chrome only.
 
 1. Load the extension unpacked via `chrome://extensions` (developer mode).
 2. Open a photo in the JoyClub lightbox.
