@@ -50,3 +50,14 @@ A click on a profile or conversation saves only the photos and attachments not s
 * "New messages" means the newest message id differs from the saved one, and the finishing download's id wins. A late older ZIP or a deleted newest message therefore costs one extra transcripts-only ZIP.
 * A failing `pending:` write is logged; the ZIP stays a success, its files just stay unrecorded.
 * Review fix (boy scout, from task 05): "Save hidden image" used `contexts: ['all']`, which also covers the toolbar icon's menu; it now lists every page context.
+
+## Live check (2026-10-09)
+
+With the user's session (playwright-cli, extension loaded, a profile with 1 photo and 10 own ClubMail attachments):
+
+* First click → full ZIP (11 files); after `complete` `saved:<id>` holds 1 photo, 10 attachments, `lastMessageId`; no `pending:` left.
+* Second click → no download, badge `✓` "nothing new".
+* `lastMessageId` set back (stands in for a new message; no real message was sent) → ZIP with only `ClubMail/conversation.md` and `.html`; the next click gives "nothing new" again.
+* "Download everything again" (`handleMenuClick`) → full ZIP, record unchanged; the next click gives "nothing new".
+* ZIP download cancelled in `downloads.onCreated` → `interrupted` (`USER_CANCELED`), nothing recorded, the next click saves all 11 files again.
+* Not checked: Chrome's toolbar icon menu itself (Playwright cannot open it). The E2E test confirms both items exist via `contextMenus.update`.
