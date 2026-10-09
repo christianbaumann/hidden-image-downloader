@@ -6,7 +6,7 @@ dependencies:
 
 # Task 10: Profile videos in Videos/
 
-**Status:** Blocked by task 09. Task 06 is done, so videos must also get a record key (like `photoKey`) in `lib/incremental.js`.
+**Status:** Unblocked (task 09 done): every profile video is HLS, so as designed this task is only the `Videos: <n> not supported (HLS)` line in `skipped.txt` (count from `POST /video/lightbox/list`). Awaiting the user's decision: keep that, drop the task, or design an HLS download (backlog). Task 06 is done, so any video entries also need a record key in `lib/incremental.js`.
 
 Profile videos served as plain files go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP; streamed videos are listed in `skipped.txt`.
 
