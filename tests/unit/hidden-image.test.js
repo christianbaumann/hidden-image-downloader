@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { albumContext, backgroundImageUrl, toHiddenImageCandidates, widestSrcsetUrl } from '../../lib/hidden-image.js';
+import { albumContext, backgroundImageUrl, colorAlpha, toHiddenImageCandidates, widestSrcsetUrl } from '../../lib/hidden-image.js';
 import { NoImageUrlError } from '../../lib/lightbox.js';
 import { testUuid } from '../fixtures/album-api.js';
 
@@ -14,7 +14,7 @@ const ALBUM_LINKS = [
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3002_x',
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3003_x',
 ];
-const NONE = { backgroundImage: 'none', srcset: '', photoId: null, linkIndex: -1, owner: '' };
+const NONE = { backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', photoId: null, linkIndex: -1, owner: '' };
 
 const layer = (overrides) => ({ ...NONE, ...overrides });
 
@@ -56,6 +56,20 @@ describe('widestSrcsetUrl', () => {
   test('empty srcset gives null', () => {
     assert.equal(widestSrcsetUrl('', PAGE_URL), null);
     assert.equal(widestSrcsetUrl(undefined, PAGE_URL), null);
+  });
+});
+
+describe('colorAlpha', () => {
+  test('reads the alpha of rgba and treats rgb as opaque', () => {
+    assert.equal(colorAlpha('rgba(0, 0, 0, 0.85)'), 0.85);
+    assert.equal(colorAlpha('rgba(0, 0, 0, 0)'), 0);
+    assert.equal(colorAlpha('rgb(255, 255, 255)'), 1);
+    assert.equal(colorAlpha('rgb(0 0 0 / 0.5)'), 0.5);
+  });
+
+  test('an unknown or missing value counts as transparent', () => {
+    assert.equal(colorAlpha('transparent'), 0);
+    assert.equal(colorAlpha(undefined), 0);
   });
 });
 
@@ -125,6 +139,32 @@ describe('toHiddenImageCandidates', () => {
     };
 
     assert.equal(toHiddenImageCandidates(raw)[0].filename, 'SlideOwner_1001.jpg');
+  });
+
+  test('a backdrop without image hides the photos below it', () => {
+    const raw = {
+      pageUrl: PAGE_URL,
+      owner: 'TestOwner',
+      layers: [layer({ backgroundColor: 'rgba(0, 0, 0, 0.85)' }), layer({ backgroundImage: `url("${JPG_URL}")` })],
+    };
+
+    assert.throws(() => toHiddenImageCandidates(raw), NoImageUrlError);
+  });
+
+  test('an opaque layer with its own image still counts', () => {
+    const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ backgroundImage: `url("${JPG_URL}")`, backgroundColor: 'rgb(255, 255, 255)' })] };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].url, JPG_URL);
+  });
+
+  test('a translucent tint over the photo does not hide it', () => {
+    const raw = {
+      pageUrl: PAGE_URL,
+      owner: 'TestOwner',
+      layers: [layer({ backgroundColor: 'rgba(0, 0, 0, 0.3)' }), layer({ backgroundImage: `url("${JPG_URL}")` })],
+    };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].url, JPG_URL);
   });
 
   test('no image layer throws NoImageUrlError', () => {

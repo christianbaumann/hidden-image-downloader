@@ -12,7 +12,7 @@ It runs in Chrome only and on JoyClub only (`www.joyclub.de`, `www.joyclub.com`)
 
 ### Context menu: "Save hidden image"
 
-Right-click any image on a JoyClub page (album grid, profile cards, lightbox, feed, photo detail) and choose "Save hidden image". It saves the image below the transparent overlay, not the overlay GIF: the first element under the pointer with a background image, else the widest entry of a `srcset`. The name follows the rules above. On an album page (`/profile/fotoalbum/…`) the name includes album title and position, `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as in the profile ZIP. The menu shows only on JoyClub pages. In a tab that was open before the extension was installed or reloaded, the badge says "reload the page and try again".
+Right-click any image on a JoyClub page (album grid, profile cards, lightbox, feed, photo detail) and choose "Save hidden image". It saves the image below the transparent overlay, not the overlay GIF: the first element under the pointer with a background image, else the widest entry of a `srcset`. A right-click on a dark backdrop, such as beside the lightbox photo, finds no image instead of saving a photo hidden behind it. The name follows the rules above. On an album page (`/profile/fotoalbum/…`) the name includes album title and position, `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as in the profile ZIP. The menu shows only on JoyClub pages. In a tab that was open before the extension was installed or reloaded, the badge says "reload the page and try again".
 
 ### Profile photos
 

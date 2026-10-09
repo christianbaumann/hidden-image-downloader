@@ -32,13 +32,19 @@ function describeImageLayers() {
     owner: textOf(document.querySelector('h1.profile-base-info__user-name')),
     album: textOf(document.querySelector('h2.profile-headline')),
     albumLinks: albumLinks.map((link) => link.getAttribute('href')),
-    layers: document.elementsFromPoint(lastContextMenu.x, lastContextMenu.y).map((element) => ({
-      backgroundImage: window.getComputedStyle(element).backgroundImage,
-      srcset: srcsetOf(element),
-      photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
-      linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
-      owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
-    })),
+    layers: document.elementsFromPoint(lastContextMenu.x, lastContextMenu.y)
+      .filter((element) => element !== document.body && element !== document.documentElement)
+      .map((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          backgroundImage: style.backgroundImage,
+          backgroundColor: style.backgroundColor,
+          srcset: srcsetOf(element),
+          photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
+          linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
+          owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
+        };
+      }),
   };
 }
 

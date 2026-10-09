@@ -428,3 +428,17 @@ test('the context menu on a spot without an image shows the red badge and saves 
   expect(text).toContain('path: context menu');
   expect(text).toContain('error: NoImageUrlError  reason=image address not found');
 });
+
+test('the context menu on a backdrop does not save the album card behind it', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, ALBUM_PAGE_URL, await fixture('album.html', { __IMAGE_BASE__: imageServer.base }));
+  await page.evaluate(() => {
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.85);';
+    document.body.append(backdrop);
+  });
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, 'a.album-link:nth-of-type(2)'));
+
+  expect(result).toBeNull();
+  expect((await badgeState(serviceWorker)).title).toBe('Hidden Image Downloader: image address not found');
+});
