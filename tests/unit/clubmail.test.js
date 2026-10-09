@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clubMailConversationId, fetchClubMailImages, toClubMailEntries } from '../../lib/clubmail.js';
-import { ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+import { clubMailConversationId, fetchClubMailImages, toClubMailConversation } from '../../lib/clubmail.js';
+import { BASE_TIME, ME, ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 describe('clubMailConversationId', () => {
   test('puts the higher user id first', () => {
@@ -124,8 +124,8 @@ describe('fetchClubMailImages', () => {
   });
 });
 
-describe('toClubMailEntries', () => {
-  const entries = (messages) => toClubMailEntries({ origin: ORIGIN, messages }, 'TestOwner', 'ClubMail');
+describe('toClubMailConversation entries', () => {
+  const entries = (messages) => toClubMailConversation({ origin: ORIGIN, messages }, 'TestOwner', 'ClubMail').entries;
 
   test('names attachments <folder>/<owner>_<folder>_<NN>_<attach_id>.<ext> in message order', () => {
     const result = entries([
@@ -168,5 +168,56 @@ describe('toClubMailEntries', () => {
 
   test('gives no entries without attachments', () => {
     assert.deepEqual(entries([textMessage('1')]), []);
+  });
+});
+
+describe('toClubMailConversation messages', () => {
+  const messagesOf = (messages) => toClubMailConversation({ origin: ORIGIN, messages }, 'TestOwner', 'ClubMail').messages;
+
+  test('maps author, time and content in message order', () => {
+    const result = messagesOf([textMessage('1', { content: 'Hi' }), textMessage('2', { from: ME, content: 'Hello' })]);
+
+    assert.deepEqual(result, [
+      { author: 'TestOwner', time: BASE_TIME + 60000, content: 'Hi', reply: null, attachment: null },
+      { author: 'TestMe', time: BASE_TIME + 120000, content: 'Hello', reply: null, attachment: null },
+    ]);
+  });
+
+  test('falls back from from_user_name to from_user.name to "Unknown"', () => {
+    const withoutName = { ...textMessage('1'), from_user_name: undefined, from_user: { name: 'Fallback' } };
+    const withoutAny = { ...textMessage('2'), from_user_name: '  ', from_user: undefined };
+
+    assert.deepEqual(messagesOf([withoutName, withoutAny]).map(({ author }) => author), ['Fallback', 'Unknown']);
+  });
+
+  test('missing content becomes an empty string', () => {
+    const [message] = messagesOf([{ ...textMessage('1'), content: undefined }]);
+
+    assert.equal(message.content, '');
+  });
+
+  test('a reply carries the quoted message\'s author, time and content', () => {
+    const quoted = { ...textMessage('1', { from: ME, content: 'Question?' }), from_user_name: undefined };
+    const [message] = messagesOf([textMessage('2', { content: 'Answer', reply: quoted })]);
+
+    assert.deepEqual(message.reply, { author: 'TestMe', time: BASE_TIME + 60000, content: 'Question?' });
+  });
+
+  test('an attachment names the entry file relative to the folder', () => {
+    const result = messagesOf([
+      attachmentMessage('1', 'a1', { fileName: 'beach.jpg' }),
+      attachmentMessage('2', 'a2', { fileType: '.pdf', fileName: '' }),
+    ]);
+
+    assert.deepEqual(result.map(({ attachment }) => attachment), [
+      { file: 'TestOwner_ClubMail_01_a1.jpg', name: 'beach.jpg', isImage: true },
+      { file: 'TestOwner_ClubMail_02_a2.pdf', name: 'TestOwner_ClubMail_02_a2.pdf', isImage: false },
+    ]);
+  });
+
+  test('an attachment without attach_id gives no attachment', () => {
+    const [message] = messagesOf([attachmentMessage('1', '')]);
+
+    assert.equal(message.attachment, null);
   });
 });

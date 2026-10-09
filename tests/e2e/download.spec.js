@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
 import { listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
-import { attachmentMessage } from '../fixtures/clubmail-api.js';
+import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
@@ -15,7 +15,12 @@ const ALBUM_LIST = listResult({
     { id: '202', title: 'Lady', restricted: true, imageCount: 9 },
   ],
 });
-const CLUBMAIL_MESSAGES = [attachmentMessage('11', 'e2e-a1'), attachmentMessage('12', 'e2e-a2')];
+const GREETING = textMessage('10', { from: ME, content: 'Hi <img class="joy_smiley" src="//cfnimg.joyclub.de/smile/x.gif" alt=":-)"> &amp; <a href="javascript:alert(1)">bye</a>' });
+const CLUBMAIL_MESSAGES = [
+  GREETING,
+  attachmentMessage('11', 'e2e-a1', { content: 'Photo', reply: GREETING }),
+  attachmentMessage('12', 'e2e-a2'),
+];
 const RESTRICTED_ONLY_LIST = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
 const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
@@ -178,10 +183,16 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'ClubMail/conversation.md',
     'Fotos-von-uns/',
     'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
     'skipped.txt',
   ]);
+  const transcript = await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.md');
+  expect(transcript).toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n\n## 2026-09-30\n/);
+  expect(transcript).toContain('**TestMe** · 21:10\nHi :-) & bye\n');
+  expect(transcript).toContain('**TestOwner** · 21:11\n> Reply to TestMe, 2026-09-30 21:10: Hi :-) & bye\n\nPhoto\n\n![attachment](TestOwner_ClubMail_01_e2e-a1.jpg)\n');
+  expect(transcript).toContain('**TestOwner** · 21:12\n![attachment](TestOwner_ClubMail_02_e2e-a2.jpg)\n');
   expect((await badgeState(serviceWorker)).text).toBe('');
 });
 
@@ -205,6 +216,7 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
     'ClubMail/',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'ClubMail/conversation.md',
     'skipped.txt',
   ]);
 });

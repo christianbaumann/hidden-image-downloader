@@ -11,7 +11,7 @@ import {
   missingReport,
 } from '../../lib/profile.js';
 import { IMAGE_BASE, albumRaw, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
-import { ORIGIN, attachmentMessage } from '../fixtures/clubmail-api.js';
+import { ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
 const UUID_1 = '11111111-1111-4111-8111-111111111111';
@@ -297,6 +297,28 @@ describe('toAlbumZipRequest with ClubMail', () => {
 
   test('an album failure stays AlbumApiError even with attachments', () => {
     assert.throws(() => toAlbumZipRequest({ failed: true }, DATE, CLUBMAIL), AlbumApiError);
+  });
+
+  test('adds ClubMail/conversation.md with every message to the reports', () => {
+    const clubMail = { origin: ORIGIN, messages: [textMessage('10', { content: 'Hi' }), ...CLUBMAIL.messages] };
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, clubMail);
+
+    const [transcript] = request.reports.filter(({ name }) => name === 'ClubMail/conversation.md');
+    assert.match(transcript.text, /^# ClubMail with TestOwner\nExported 2026-10-08 17:45 · 3 messages\n/);
+    assert.match(transcript.text, /Hi\n\n\*\*TestOwner\*\* · 21:11\n!\[attachment\]\(TestOwner_ClubMail_01_a1\.jpg\)\n/);
+    assert.match(transcript.text, /!\[attachment\]\(TestOwner_ClubMail_02_a2\.jpg\)\n$/);
+  });
+
+  test('a conversation without attachments still gets its transcript', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN, messages: [textMessage('10')] });
+
+    assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md']);
+  });
+
+  test('a failed ClubMail fetch writes no transcript', () => {
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { failed: true });
+
+    assert.deepEqual(request.reports.map(({ name }) => name), ['skipped.txt']);
   });
 
   test('an album titled ClubMail gets the folder ClubMail-2', () => {
