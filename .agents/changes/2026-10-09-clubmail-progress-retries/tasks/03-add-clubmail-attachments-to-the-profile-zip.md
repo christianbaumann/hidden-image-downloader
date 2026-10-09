@@ -45,7 +45,7 @@ A click on a profile also saves every attachment of the ClubMail conversation wi
 * [x] E2E: a profile with only restricted albums but ClubMail attachments saves a ZIP with only `ClubMail/` **Note:** Verified via E2E 'a profile with only restricted albums saves the ClubMail attachments'.
 * [x] An album titled "ClubMail" gets the folder `ClubMail-2` **Note:** Verified via `tests/unit/profile.test.js` ('an album titled ClubMail gets the folder ClubMail-2').
 * [x] `npm test` and `npm run test:e2e` pass **Note:** Verified: 289 unit/integration tests and 11 E2E tests pass after the review fixes.
-* [ ] (manual testing required) Manual (needs a real session, not automatable): on a profile with a known conversation, the attachments are in `ClubMail/` with real bytes (the offscreen fetch sends the session cookie), and the conversation stays unread
+* [x] Manual (needs a real session, not automatable): on a profile with a known conversation, the attachments are in `ClubMail/` with real bytes (the offscreen fetch sends the session cookie), and the conversation stays unread **Note:** Verified 2026-10-09 via `playwright-cli` (Chromium with the extension loaded, session cookies from an exported cookie file, `handleActionClick` called in the service worker) on a real profile with an unread conversation: the ZIP holds 5 `ClubMail/<Owner>_ClubMail_<nn>_<attach_id>.jpg` files, each a valid JPEG (76–158 KB, up to 965×724); `skipped.txt` has no ClubMail line; no badge warning; the inbox shows "1 ungelesene Nachricht" for that conversation before and after.
 
 ## Deviations
 
