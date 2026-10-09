@@ -25,7 +25,8 @@ Close the known limitations of the "Save hidden image" menu found in the task 05
 * [x] Unit tests for the numbering, the plain-image rule and the owner fallback; manifest test for `all_frames`
 * [x] README and `CLAUDE.md` updated
 
-Not in scope (decision pending, see summary): upgrading feed crops (`…/1-1/image_720_<token>`, `…/orig/image_180_<token>`) to `…/orig/image_1920_<token>`. Some feed photos sit behind JoyClub's FSK18 activation (`/webauth/activate/fsk18/`); the upgrade would bypass that gate.
+* [x] Full size wherever possible (user decision 2026-10-09): `toFullSizeUrl` turns crops and small widths (`…/1-1/image_720_<token>`, `…/orig/image_180_<token>`) into `…/orig/image_1920_<token>.jpg`, probed first, with the served URL as fallback
+* [x] Photos behind JoyClub's FSK18 activation (inside a `/webauth/activate/fsk18/` link) keep their served size, so the extension does not bypass the age gate (deviation from "wherever possible": not bypassing an age verification)
 
 ## Verification
 
@@ -37,7 +38,9 @@ Not in scope (decision pending, see summary): upgrading feed crops (`…/1-1/ima
   * **Note:** Verified via `tests/unit/hidden-image.test.js` › "takes the src of a plain image …", "never takes a GIF src …", "a srcset wins over the src …"; all existing E2E overlay fixtures still pass.
 * [x] A feed member card is saved as `<user-name>_<photo-id>.jpg`
   * **Note:** Verified via `tests/e2e/download.spec.js` › "the context menu saves a feed member card from its picture sources under the card user name" and live 2026-10-09 (`/my_joy/feed/friends/`: card → `<user-name>_<id>.jpg`, was `unknown_<id>.jpg`).
+* [x] A feed crop is saved at full size; a gated photo at its served size
+  * **Note:** Verified via `tests/unit/image-url.test.js` › `toFullSizeUrl`, `tests/unit/lightbox.test.js`, `tests/unit/hidden-image.test.js` and `tests/e2e/download.spec.js` › "… feed member card …" / "… behind the FSK18 gate"; live 2026-10-09: member card and status-message photo → `orig/image_1920_….jpg`, gated photo → served `orig/image_180_pxl_….jpg`.
 * [x] `npm test` and `npm run test:e2e` pass
-  * **Note:** `npm test` 497 pass, `npm run test:e2e` 20 pass
+  * **Note:** `npm test` 505 pass, `npm run test:e2e` 21 pass
 * [x] A failing `describeImageLayers` gives "image address not found"
   * **Note:** Code review only: the content script runs in an isolated world, so a test cannot make it throw; `null` → "image address not found" is covered by the integration test "no image below the pointer shows …".

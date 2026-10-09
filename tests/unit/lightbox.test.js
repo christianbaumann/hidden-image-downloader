@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NoImageUrlError,
+  imageCandidates,
   NoLightboxError,
   parseBackgroundImageUrl,
   toDownloadCandidates,
@@ -83,6 +84,19 @@ describe('toDownloadCandidates', () => {
       { url: 'https://x/img/a.jpg?c=1', filename: 'BitPaerchen_4711.jpg' },
       { url: 'https://x/img/a.webp?c=1', filename: 'BitPaerchen_4711.webp' },
     ]);
+  });
+
+  test('offers the full-size jpg first for a smaller variant', () => {
+    const crop = `${IMAGE_BASE}/${testUuid(2)}/1-1/image_720_k.jpg?cache=c`;
+    assert.deepEqual(imageCandidates(crop, { owner: 'TestOwner' }), [
+      { url: `${IMAGE_BASE}/${testUuid(2)}/orig/image_1920_k.jpg`, filename: 'TestOwner_00000002.jpg' },
+      { url: crop, filename: 'TestOwner_00000002.jpg' },
+    ]);
+  });
+
+  test('keeps the served size of a gated image', () => {
+    const crop = `${IMAGE_BASE}/${testUuid(2)}/1-1/image_720_k.jpg?cache=c`;
+    assert.deepEqual(imageCandidates(crop, { owner: 'TestOwner', gated: true }).map(({ url }) => url), [crop]);
   });
 
   test('takes the photo key from a UUID image url over data-photo', () => {

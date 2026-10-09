@@ -15,7 +15,7 @@ const ALBUM_LINKS = [
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3003_x',
 ];
 const NONE = {
-  backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', src: '', photoId: null, linkIndex: -1, owner: '', userName: '',
+  backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', src: '', photoId: null, linkIndex: -1, owner: '', userName: '', gated: false,
 };
 const OVERLAY_GIF = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
@@ -192,6 +192,22 @@ describe('toHiddenImageCandidates', () => {
     const raw = { pageUrl: PAGE_URL, owner: 'PageOwner', layers: [layer({ srcset: `${JPG_URL} 720w`, userName: 'CardUser' })] };
 
     assert.equal(toHiddenImageCandidates(raw)[0].filename, 'CardUser_00000002.jpg');
+  });
+
+  test('a gated layer keeps the served size', () => {
+    const crop = `https://image-user.feig-partner.de/${UUID}/orig/image_180_k.jpg`;
+    const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ srcset: `${crop} 180w`, gated: true })] };
+
+    assert.deepEqual(toHiddenImageCandidates(raw).map(({ url }) => url), [crop]);
+  });
+
+  test('an ungated small image offers the full size first', () => {
+    const crop = `https://image-user.feig-partner.de/${UUID}/orig/image_180_k.jpg`;
+    const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ srcset: `${crop} 180w` })] };
+
+    assert.deepEqual(toHiddenImageCandidates(raw).map(({ url }) => url), [
+      `https://image-user.feig-partner.de/${UUID}/orig/image_1920_k.jpg`, crop,
+    ]);
   });
 
   test('no image layer throws NoImageUrlError', () => {

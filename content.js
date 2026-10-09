@@ -1,6 +1,8 @@
 // Runs on JoyClub pages. Remembers the last right-click; the "Save hidden image" menu asks for the image layers below it.
 // A content script is no ES module: DESCRIBE_ACTION is repeated in background.js.
 const DESCRIBE_ACTION = 'describe-hidden-image';
+// Photos behind JoyClub's FSK18 activation link there; they keep the size the page serves.
+const FSK18_GATE_LINK = 'a[href*="/webauth/activate/fsk18/"]';
 
 let lastContextMenu = null;
 
@@ -62,6 +64,7 @@ function describeImageLayers() {
         linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
         owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
         userName: element.closest('[user-name]')?.getAttribute('user-name') ?? '',
+        gated: element.closest(FSK18_GATE_LINK) !== null,
       };
     }),
   };

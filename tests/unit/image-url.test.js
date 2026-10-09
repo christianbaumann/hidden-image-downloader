@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toJpgUrl, largestJpegUrl } from '../../lib/image-url.js';
+import { toFullSizeUrl, toJpgUrl, largestJpegUrl } from '../../lib/image-url.js';
 import { sourceListJson } from '../fixtures/album-api.js';
 
 describe('toJpgUrl', () => {
@@ -68,5 +68,26 @@ describe('largestJpegUrl', () => {
   test('returns null for a non-http or relative path', () => {
     assert.equal(largestJpegUrl(jpeg([{ width: 1920, path: 'javascript:alert(1)' }])), null);
     assert.equal(largestJpegUrl(jpeg([{ width: 1920, path: '/u/a.jpg' }])), null);
+  });
+});
+
+describe('toFullSizeUrl', () => {
+  const UUID_PATH = 'https://image-user.feig-partner.de/08d44c36-e94c-40f4-b36b-206859061a45';
+
+  test('turns a crop into the full-size jpg of the same photo, without the cache query', () => {
+    assert.equal(toFullSizeUrl(`${UUID_PATH}/1-1/image_720_B5Csj.jpg?cache=x`), `${UUID_PATH}/orig/image_1920_B5Csj.jpg`);
+  });
+
+  test('turns a small webp into the full-size jpg', () => {
+    assert.equal(toFullSizeUrl(`${UUID_PATH}/orig/image_180_t9.webp`), `${UUID_PATH}/orig/image_1920_t9.jpg`);
+  });
+
+  test('returns null for a full-size image', () => {
+    assert.equal(toFullSizeUrl(`${UUID_PATH}/orig/image_1920_B5Csj.webp?cache=x`), null);
+  });
+
+  test('returns null for other URLs', () => {
+    assert.equal(toFullSizeUrl('https://x/img/a.webp?c=1'), null);
+    assert.equal(toFullSizeUrl('not a url'), null);
   });
 });

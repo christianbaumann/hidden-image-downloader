@@ -450,10 +450,18 @@ test('the context menu on a backdrop does not save the album card behind it', as
 test('the context menu saves a feed member card from its picture sources under the card user name', async ({ page, serviceWorker, imageServer }) => {
   await serve(page, FEED_URL, await fixture('feed.html', { __IMAGE_BASE__: imageServer.base }));
 
-  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.picture-ui'));
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.picture-ui:not(.gated)'));
 
   expect(result.filename).toBe('CardUser_00000003.jpg');
-  expect(result.url).toBe(`${imageServer.base}/${testUuid(3)}/orig/image_720_k.jpg`);
+  expect(result.url).toBe(`${imageServer.base}/${testUuid(3)}/orig/image_1920_k.jpg`);
+});
+
+test('the context menu keeps the served size of a photo behind the FSK18 gate', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, FEED_URL, await fixture('feed.html', { __IMAGE_BASE__: imageServer.base }));
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.picture-ui.gated'));
+
+  expect(result.url).toBe(`${imageServer.base}/${testUuid(4)}/orig/image_180_k.jpg`);
 });
 
 test('the context menu saves the image below the pointer inside a JoyClub iframe', async ({ page, serviceWorker, imageServer }) => {
@@ -464,7 +472,7 @@ test('the context menu saves the image below the pointer inside a JoyClub iframe
   const frame = page.frame({ url: FEED_URL });
   await frame.waitForSelector('.picture-ui');
 
-  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(frame, '.picture-ui'), frame);
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(frame, '.picture-ui:not(.gated)'), frame);
 
   expect(result.filename).toBe('CardUser_00000003.jpg');
 });
