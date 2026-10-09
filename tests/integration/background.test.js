@@ -32,7 +32,23 @@ const OFFSCREEN_READY_LIMIT = 50;
 const PROGRESS_COLOR = '#1a73e8';
 const WARNING_COLOR = '#e0a000';
 
+const MENU_INFO = { menuItemId: 'save-hidden-image', frameId: 0 };
+const MENU_TAB = { id: 7, url: 'https://www.joyclub.de/my_joy/feed/friends/' };
+const HIDDEN_IMAGE = {
+  pageUrl: MENU_TAB.url,
+  owner: 'TestOwner',
+  album: '',
+  albumLinks: [],
+  layers: [
+    { backgroundImage: 'none', srcset: '', photoId: null, linkIndex: -1, owner: '' },
+    { backgroundImage: `url("${IMAGE_URL}")`, srcset: '', photoId: '1001', linkIndex: -1, owner: '' },
+  ],
+};
+
 const listeners = [];
+const installedListeners = [];
+const menuListeners = [];
+const createdMenus = [];
 const filenameListeners = [];
 const changedListeners = [];
 const messageListeners = [];
@@ -48,6 +64,7 @@ let offscreenOpen;
 let offscreenCreating;
 let createDocument;
 let closeDocument;
+let tabMessage;
 
 const record = (name) => async (details) => {
   calls.push([name, details]);
@@ -56,6 +73,7 @@ const record = (name) => async (details) => {
 globalThis.chrome = {
   runtime: {
     id: OWN_EXTENSION_ID,
+    onInstalled: { addListener: (listener) => installedListeners.push(listener) },
     onMessage: { addListener: (listener) => messageListeners.push(listener) },
     sendMessage: async (message) => {
       calls.push(['sendMessage', message]);
@@ -90,6 +108,16 @@ globalThis.chrome = {
     setBadgeBackgroundColor: record('setBadgeBackgroundColor'),
     setTitle: record('setTitle'),
   },
+  contextMenus: {
+    create: (options) => createdMenus.push(options),
+    onClicked: { addListener: (listener) => menuListeners.push(listener) },
+  },
+  tabs: {
+    sendMessage: async (tabId, message, options) => {
+      calls.push(['tabs.sendMessage', { tabId, message, options }]);
+      return tabMessage(tabId, message, options);
+    },
+  },
   scripting: {
     executeScript: async (options) => {
       calls.push(['executeScript', options]);
@@ -111,7 +139,7 @@ globalThis.fetch = async (url, options) => {
   return fetchImpl(url, options);
 };
 
-const { handleActionClick } = await import('../../background.js');
+const { handleActionClick, handleMenuClick } = await import('../../background.js');
 
 const callsNamed = (name) => calls.filter(([callName]) => callName === name).map(([, details]) => details);
 const LOG_FILENAME = 'hidden-image-downloader-log.txt';
@@ -165,6 +193,7 @@ beforeEach(() => {
   offscreenCreating = false;
   createDocument = async () => {};
   closeDocument = async () => {};
+  tabMessage = async () => HIDDEN_IMAGE;
   mock.method(console, 'warn', () => {});
 });
 
@@ -1200,5 +1229,66 @@ describe('failure log', () => {
 
     assert.equal(contentDownloads().length, 1);
     assert.equal(logDownloads().length, 0);
+  });
+});
+
+describe('"Save hidden image" context menu', () => {
+  test('creates the menu on install for JoyClub pages only, in every context', () => {
+    installedListeners.forEach((listener) => listener());
+
+    assert.deepEqual(createdMenus.at(-1), {
+      id: 'save-hidden-image',
+      title: 'Save hidden image',
+      contexts: ['all'],
+      documentUrlPatterns: ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'],
+    });
+    assert.deepEqual(menuListeners, [handleMenuClick]);
+    assert.equal(globalThis.handleMenuClick, handleMenuClick);
+  });
+
+  test('asks the clicked frame for the image and downloads its jpg', async () => {
+    const result = await handleMenuClick({ ...MENU_INFO, frameId: 3 }, MENU_TAB);
+
+    assert.deepEqual(callsNamed('tabs.sendMessage'), [
+      { tabId: MENU_TAB.id, message: { action: 'describe-hidden-image' }, options: { frameId: 3 } },
+    ]);
+    assert.deepEqual(result, { url: JPG_URL, filename: 'TestOwner_1001.jpg', downloadId: DOWNLOAD_ID });
+    assert.equal(callsNamed('executeScript').length, 0);
+    assert.equal(logDownloads().length, 0);
+  });
+
+  test('falls back to the webp when the jpg probe fails', async () => {
+    fetchImpl = async () => ({ ok: false, status: HTTP_NOT_FOUND });
+
+    const result = await handleMenuClick(MENU_INFO, MENU_TAB);
+
+    assert.equal(result.url, IMAGE_URL);
+    assert.equal(result.filename, 'TestOwner_1001.webp');
+  });
+
+  test('no image below the pointer shows "image address not found" and saves the log', async () => {
+    tabMessage = async () => ({ ...HIDDEN_IMAGE, layers: [HIDDEN_IMAGE.layers[0]] });
+
+    assert.equal(await handleMenuClick(MENU_INFO, MENU_TAB), null);
+    assert.equal(lastBadgeText(), '!');
+    assert.match(lastTitle(), /image address not found/);
+    assert.equal(contentDownloads().length, 0);
+    assert.match(logText(), /path: context menu {2}url=https:\/\/www\.joyclub\.de\/my_joy\/feed\/friends\/\n/);
+    assert.match(logText(), /error: NoImageUrlError {2}reason=image address not found/);
+  });
+
+  test('a tab without the content script shows "reload the page and try again"', async () => {
+    tabMessage = async () => {
+      throw new Error('Could not establish connection. Receiving end does not exist.');
+    };
+
+    assert.equal(await handleMenuClick(MENU_INFO, MENU_TAB), null);
+    assert.match(lastTitle(), /reload the page and try again/);
+    assert.equal(logDownloads().length, 1);
+  });
+
+  test('ignores other menu items', async () => {
+    assert.equal(await handleMenuClick({ ...MENU_INFO, menuItemId: 'other' }, MENU_TAB), null);
+    assert.deepEqual(calls, []);
   });
 });

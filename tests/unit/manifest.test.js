@@ -21,8 +21,15 @@ test('manifest registers background.js as module service worker', () => {
   assert.ok(existsSync(resolve(root, manifest.background.service_worker)));
 });
 
-test('manifest requests only scripting, downloads and offscreen permissions', () => {
-  assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen']);
+test('manifest requests only scripting, downloads, offscreen and contextMenus permissions', () => {
+  assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen', 'contextMenus']);
+});
+
+test('manifest runs content.js on JoyClub pages only', () => {
+  assert.deepEqual(manifest.content_scripts, [
+    { matches: ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'], js: ['content.js'], run_at: 'document_start' },
+  ]);
+  assert.ok(existsSync(resolve(root, 'content.js')));
 });
 
 test('offscreen document exists', () => {

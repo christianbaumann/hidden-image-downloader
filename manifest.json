@@ -15,11 +15,19 @@
   "permissions": [
     "scripting",
     "downloads",
-    "offscreen"
+    "offscreen",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://www.joyclub.de/*",
     "https://www.joyclub.com/*",
     "https://image-user.feig-partner.de/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.joyclub.de/*", "https://www.joyclub.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
   ]
 }

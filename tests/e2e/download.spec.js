@@ -8,6 +8,10 @@ const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
 const CONVERSATION_URL = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-1000002-1000001/';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
+const ALBUM_PAGE_URL = 'https://www.joyclub.de/profile/fotoalbum/1000001.testowner.html';
+const MENU_ITEM_ID = 'save-hidden-image';
+// A spot below every fixture's content, where no image is.
+const EMPTY_SPOT = { x: 600, y: 500 };
 const HTTP_SERVER_ERROR = 500;
 const HTTP_NOT_FOUND = 404;
 const ALBUM_LIST = listResult({
@@ -369,4 +373,58 @@ test('saves a failure log that names the reason on non-JoyClub pages', async ({ 
   expect(text).toMatch(/^Hidden Image Downloader log\n/);
   expect(text).toContain('path: lightbox');
   expect(text).toContain('error: UnsupportedPageError  reason=works on JoyClub pages only');
+});
+
+// Center of the first element matching selector, in viewport coordinates.
+async function centerOf(page, selector) {
+  const box = await page.locator(selector).first().boundingBox();
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+// Fires a right-click at point in the page; Playwright cannot open Chrome's context menu,
+// so the menu click is handed to the service worker's handler.
+async function saveHiddenImageAt(page, serviceWorker, point) {
+  await page.evaluate(({ x, y }) => document.elementFromPoint(x, y).dispatchEvent(
+    new MouseEvent('contextmenu', { clientX: x, clientY: y, bubbles: true, cancelable: true }),
+  ), point);
+  return serviceWorker.evaluate(async (menuItemId) => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return globalThis.handleMenuClick({ menuItemId, frameId: 0 }, tab);
+  }, MENU_ITEM_ID);
+}
+
+test('the context menu saves the album card below the overlay under its ZIP name', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, ALBUM_PAGE_URL, await fixture('album.html', { __IMAGE_BASE__: imageServer.base }));
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, 'a.album-link:nth-of-type(2)'));
+
+  expect(result.filename).toBe('TestOwner_Fotos-von-uns_02_00000002.jpg');
+  expect(result.url).toBe(`${imageServer.base}/${testUuid(2)}/orig/image_1920_k.jpg`);
+  await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
+    .toBe('complete');
+  expect((await badgeState(serviceWorker)).text).toBe('');
+});
+
+test('the context menu on a lightbox saves the same file as the toolbar click', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
+
+  const menuResult = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.slide_active img.secure_image'));
+  const toolbarResult = await clickAction(serviceWorker);
+
+  expect(menuResult.filename).toBe(`${EXPECTED_STEM}.jpg`);
+  expect({ url: menuResult.url, filename: menuResult.filename })
+    .toEqual({ url: toolbarResult.url, filename: toolbarResult.filename });
+});
+
+test('the context menu on a spot without an image shows the red badge and saves a log', async ({ page, serviceWorker }) => {
+  await serve(page, NOTHING_URL, await fixture('no-lightbox.html'));
+
+  const result = await saveHiddenImageAt(page, serviceWorker, EMPTY_SPOT);
+
+  expect(result).toBeNull();
+  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: image address not found' });
+  expect(await badgeColor(serviceWorker)).toEqual(ERROR_COLOR_RGBA);
+  const text = await logFileText(serviceWorker);
+  expect(text).toContain('path: context menu');
+  expect(text).toContain('error: NoImageUrlError  reason=image address not found');
 });
