@@ -1,6 +1,8 @@
-import { fetchClubMailImages } from './lib/clubmail.js';
+import { clubMailConversationIds, fetchClubMailImages } from './lib/clubmail.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
-import { NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest } from './lib/profile.js';
+import {
+  NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
+} from './lib/profile.js';
 import { PHASES, overallPercent, progressBadgeText } from './lib/progress.js';
 
 const DEFAULT_ACTION_TITLE = 'Download hidden image';
@@ -40,6 +42,7 @@ const ERROR_REASONS = {
   UnsupportedPageError: 'works on JoyClub pages only',
   NothingToDownloadError: 'no lightbox image or profile photos found',
   AlbumApiError: 'album list unavailable',
+  ClubMailApiError: CLUBMAIL_UNAVAILABLE,
   NoImageUrlError: 'image address not found',
   DownloadFailedError: 'download failed',
 };
@@ -271,11 +274,16 @@ export async function handleActionClick(tab) {
   await clearBadge(tab.id);
   try {
     const date = new Date();
+    const conversationIds = clubMailConversationIds(tab.url);
+    if (conversationIds) {
+      const [clubMail] = await extractAllWithProgress(tab.id, [[fetchClubMailImages, [conversationIds], CLUBMAIL_FAILED]]);
+      return await downloadZip(tab.id, toClubMailZipRequest(clubMail, date));
+    }
     const userId = profileUserId(tab.url);
     if (userId) {
       const [albums, clubMail] = await extractAllWithProgress(tab.id, [
         [fetchProfileAlbums, [userId]],
-        [fetchClubMailImages, [userId], CLUBMAIL_FAILED],
+        [fetchClubMailImages, [[userId]], CLUBMAIL_FAILED],
       ]);
       return await downloadZip(tab.id, toAlbumZipRequest(albums, date, clubMail));
     }

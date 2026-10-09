@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clubMailConversationId, fetchClubMailImages, toClubMailConversation } from '../../lib/clubmail.js';
-import { BASE_TIME, ME, ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+import {
+  clubMailConversationId, clubMailConversationIds, clubMailPartnerName, fetchClubMailImages, toClubMailConversation,
+} from '../../lib/clubmail.js';
+import { BASE_TIME, ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 describe('clubMailConversationId', () => {
   test('puts the higher user id first', () => {
@@ -14,6 +16,64 @@ describe('clubMailConversationId', () => {
 
   test('compares numerically, not as strings', () => {
     assert.equal(clubMailConversationId('900', '1000'), 'conversation-wrapper-personal-1000-900');
+  });
+});
+
+describe('clubMailConversationIds', () => {
+  const URL_BASE = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-';
+
+  test('reads both ids in URL order', () => {
+    assert.deepEqual(clubMailConversationIds(`${URL_BASE}13140627-6407991/`), ['13140627', '6407991']);
+    assert.deepEqual(clubMailConversationIds(`${URL_BASE}6407991-13140627/`), ['6407991', '13140627']);
+  });
+
+  test('accepts joyclub.com with a language prefix, no trailing slash, query and hash', () => {
+    const url = 'https://www.joyclub.com/en/clubmail/conversation/conversation-wrapper-personal-2-1';
+    assert.deepEqual(clubMailConversationIds(url), ['2', '1']);
+    assert.deepEqual(clubMailConversationIds(`${url}?x=1`), ['2', '1']);
+    assert.deepEqual(clubMailConversationIds(`${url}#m`), ['2', '1']);
+  });
+
+  test('returns null for other URLs', () => {
+    for (const url of [
+      undefined,
+      '',
+      'https://www.joyclub.de/clubmail/',
+      'https://www.joyclub.de/profile/1000001.testowner.html',
+      'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-group-2-1/',
+      'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-2-1x/',
+      'https://evil.example/clubmail/conversation/conversation-wrapper-personal-2-1/',
+      'http://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-2-1/',
+    ]) {
+      assert.equal(clubMailConversationIds(url), null, url);
+    }
+  });
+});
+
+describe('clubMailPartnerName', () => {
+  test('takes the author of the partner\'s first message', () => {
+    const messages = [textMessage('1', { from: ME }), textMessage('2', { from: PARTNER })];
+    assert.equal(clubMailPartnerName({ partnerId: PARTNER.id, messages }), PARTNER.name);
+  });
+
+  test('ignores messages of a third user', () => {
+    const third = { id: '1000003', name: 'Third' };
+    const messages = [textMessage('1', { from: third }), textMessage('2', { from: PARTNER })];
+    assert.equal(clubMailPartnerName({ partnerId: PARTNER.id, messages }), PARTNER.name);
+  });
+
+  test('skips a partner message without a name', () => {
+    const nameless = { ...textMessage('1'), from_user_name: undefined, from_user: undefined };
+    assert.equal(clubMailPartnerName({ partnerId: PARTNER.id, messages: [nameless, textMessage('2')] }), PARTNER.name);
+  });
+
+  test('gives an empty string when no partner message has a name', () => {
+    const nameless = { ...textMessage('1'), from_user_name: undefined, from_user: undefined };
+    assert.equal(clubMailPartnerName({ partnerId: PARTNER.id, messages: [nameless] }), '');
+  });
+
+  test('gives an empty string when the partner wrote nothing', () => {
+    assert.equal(clubMailPartnerName({ partnerId: PARTNER.id, messages: [textMessage('1', { from: ME })] }), '');
   });
 });
 
@@ -53,7 +113,7 @@ describe('fetchClubMailImages', () => {
   });
 
   test('posts the first page with cache_killer and the conversation id', async () => {
-    await fetchClubMailImages(PARTNER_ID);
+    await fetchClubMailImages([PARTNER_ID]);
 
     const [call] = fetchCalls;
     assert.equal(call.url, '/clubmailv3/get_latest_message_list_of_conversation');
@@ -77,29 +137,50 @@ describe('fetchClubMailImages', () => {
     const messages = [1, 2, 3, 4, 5, 6].map((id) => textMessage(String(id)));
     responses = [page(messages.slice(4), older), page(messages.slice(2, 4), oldest), page(messages.slice(0, 2))];
 
-    const result = await fetchClubMailImages(PARTNER_ID);
+    const result = await fetchClubMailImages([PARTNER_ID]);
 
     assert.equal(fetchCalls.length, 3);
     assert.deepEqual(dataOf(fetchCalls[1]), older);
     assert.deepEqual(dataOf(fetchCalls[2]), oldest);
-    assert.deepEqual(result, { origin: ORIGIN, messages });
+    assert.deepEqual(result, { origin: ORIGIN, partnerId: PARTNER_ID, messages });
   });
 
   test('an empty conversation gives no messages', async () => {
-    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { origin: ORIGIN, messages: [] });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { origin: ORIGIN, partnerId: PARTNER_ID, messages: [] });
   });
 
   test('a missing cache_killer fails without a request', async () => {
     stubDocument({ sessionUserId: OWN_ID });
 
-    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
     assert.equal(fetchCalls.length, 0);
   });
 
   test('a missing session user id fails without a request', async () => {
     stubDocument({ cacheKiller: CACHE_KILLER });
 
-    assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+    assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  test('drops the own id from the two ids of a conversation URL, in either order', async () => {
+    for (const ids of [[OWN_ID, PARTNER_ID], [PARTNER_ID, OWN_ID]]) {
+      fetchCalls = [];
+
+      const result = await fetchClubMailImages(ids);
+
+      assert.equal(dataOf(fetchCalls[0]).conversation_id, `conversation-wrapper-personal-${OWN_ID}-${PARTNER_ID}`);
+      assert.equal(result.partnerId, PARTNER_ID);
+    }
+  });
+
+  test('the own profile gives no messages without a request', async () => {
+    assert.deepEqual(await fetchClubMailImages([OWN_ID]), { origin: ORIGIN, messages: [] });
+    assert.equal(fetchCalls.length, 0);
+  });
+
+  test('a conversation of two other users fails without a request', async () => {
+    assert.deepEqual(await fetchClubMailImages(['1000003', PARTNER_ID]), { failed: true });
     assert.equal(fetchCalls.length, 0);
   });
 
@@ -112,7 +193,7 @@ describe('fetchClubMailImages', () => {
     test(`${name} on a later page → { failed: true }`, async () => {
       responses = [page([textMessage('1')], { offset_message_id: '1' }), response];
 
-      assert.deepEqual(await fetchClubMailImages(PARTNER_ID), { failed: true });
+      assert.deepEqual(await fetchClubMailImages([PARTNER_ID]), { failed: true });
     });
   }
 
@@ -120,7 +201,7 @@ describe('fetchClubMailImages', () => {
     const serialised = new Function(`return (${fetchClubMailImages.toString()})`)();
     responses = [page([attachmentMessage('1', 'a1')])];
 
-    assert.deepEqual(await serialised(PARTNER_ID), { origin: ORIGIN, messages: [attachmentMessage('1', 'a1')] });
+    assert.deepEqual(await serialised([PARTNER_ID]), { origin: ORIGIN, partnerId: PARTNER_ID, messages: [attachmentMessage('1', 'a1')] });
   });
 });
 

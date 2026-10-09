@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { albumRaw, listResult } from '../fixtures/album-api.js';
-import { ORIGIN, attachmentMessage } from '../fixtures/clubmail-api.js';
+import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const TAB = { id: 7 };
 const PROFILE_USER_ID = '1000001';
 const PROFILE_TAB = { id: 7, url: `https://www.joyclub.de/profile/${PROFILE_USER_ID}.testowner.html` };
+const CONVERSATION_TAB = {
+  id: 7,
+  url: `https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-${ME.id}-${PARTNER.id}/`,
+};
 const FEED_TAB = { id: 7, url: 'https://www.joyclub.de/fotos/feed/' };
 const OTHER_TAB = { id: 8 };
 const IMAGE_URL = 'https://cdn.joyclub.de/img/abc_1920.webp?c=1';
@@ -444,10 +448,8 @@ describe('profile ZIP', () => {
 
     const options = callsNamed('executeScript');
     assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages']);
-    for (const { target, args } of options) {
-      assert.deepEqual(target, { tabId: PROFILE_TAB.id });
-      assert.deepEqual(args, [PROFILE_USER_ID]);
-    }
+    assert.ok(options.every(({ target }) => target.tabId === PROFILE_TAB.id));
+    assert.deepEqual(options.map(({ args }) => args), [[PROFILE_USER_ID], [[PROFILE_USER_ID]]]);
   });
 
   test('runs both fetchers in parallel', async () => {
@@ -770,6 +772,81 @@ describe('profile ZIP', () => {
     fireDownloadChanged(secondId, 'complete');
     await new Promise(setImmediate);
     assert.equal(callsNamed('closeDocument').length, 1);
+  });
+});
+
+describe('ClubMail conversation ZIP', () => {
+  afterEach(async () => {
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await new Promise(setImmediate);
+  });
+
+  beforeEach(() => {
+    extracted.fetchClubMailImages = {
+      origin: ORIGIN,
+      partnerId: PARTNER.id,
+      messages: [textMessage('10', { from: ME }), attachmentMessage('11', 'a1')],
+    };
+  });
+
+  test('a conversation URL injects only the ClubMail fetcher, with both URL ids', async () => {
+    await handleActionClick(CONVERSATION_TAB);
+
+    assert.deepEqual(injectedFunctions(), ['fetchClubMailImages']);
+    assert.deepEqual(callsNamed('executeScript')[0].args, [[ME.id, PARTNER.id]]);
+  });
+
+  test('builds a ClubMail-only ZIP named after the partner', async () => {
+    const result = await handleActionClick(CONVERSATION_TAB);
+
+    const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
+    assert.deepEqual(build.entries.map(({ name }) => name), ['ClubMail/TestOwner_ClubMail_01_a1.jpg']);
+    assert.deepEqual(build.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
+    assert.match(result.filename, /^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+    assert.equal(lastBadgeText(), '');
+  });
+
+  test('a conversation without attachments downloads a ZIP of the transcripts only', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, partnerId: PARTNER.id, messages: [textMessage('10')] };
+
+    const result = await handleActionClick(CONVERSATION_TAB);
+
+    const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
+    assert.deepEqual(build.entries, []);
+    assert.equal(build.reports.length, 2);
+    assert.match(result.filename, /^TestOwner_ClubMail_/);
+  });
+
+  test('the API phase shows 0 % and then 10 %', async () => {
+    await handleActionClick(CONVERSATION_TAB);
+
+    assert.deepEqual(badgeTextsOf(CONVERSATION_TAB.id).slice(0, 3), ['', '0%', '10%']);
+  });
+
+  const failures = {
+    'a failed ClubMail fetch': () => [{ result: { failed: true } }],
+    'a failing injection': () => { throw new Error('Frame was removed'); },
+    'an injection without result': () => [{ result: undefined }],
+  };
+  for (const [name, inject] of Object.entries(failures)) {
+    test(`${name} shows the red badge "ClubMail unavailable", no document`, async () => {
+      executeScript = inject;
+
+      assert.equal(await handleActionClick(CONVERSATION_TAB), null);
+
+      assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable');
+      assert.equal(callsNamed('setBadgeBackgroundColor').at(-1).color, '#d00000');
+      assert.equal(callsNamed('createDocument').length, 0);
+    });
+  }
+
+  test('an empty conversation shows "no lightbox image or profile photos found"', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, messages: [] };
+
+    assert.equal(await handleActionClick(CONVERSATION_TAB), null);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: no lightbox image or profile photos found');
+    assert.equal(callsNamed('createDocument').length, 0);
   });
 });
 

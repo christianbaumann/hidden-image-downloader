@@ -20,21 +20,38 @@ A click on an open ClubMail conversation saves `<Partner>_ClubMail_<timestamp>.z
 
 ## Work
 
-* [ ] Add `clubMailConversationIds(url)` in `lib/clubmail.js` for `https://www.joyclub.(de|com)/[lang/]clubmail/conversation/conversation-wrapper-personal-<a>-<b>/`
-* [ ] Change `fetchClubMailImages` to take the user ids from the URL and drop the own id (`body[data-session-user-id]`); the profile path passes its single id
-* [ ] Add `toClubMailZipRequest(raw, date)` → `{ zipName: '<Partner>_ClubMail_<timestamp>.zip', entries, reports }`; partner name from the partner's messages; failure → a new typed error with the reason "ClubMail unavailable"; no messages → `NothingToDownloadError`
-* [ ] Dispatch in `handleActionClick`: conversation URL before `profileUserId`; reuse `extractAllWithProgress` and `downloadZip`
-* [ ] Unit tests for `clubMailConversationIds` (both id orders, language prefix, non-matching URLs) and `toClubMailZipRequest`
-* [ ] Integration test in `tests/integration/background.test.js`: a conversation URL never injects `fetchProfileAlbums`
-* [ ] E2E: sanitised conversation page in `tests/e2e/fixtures/`, route it, assert the ZIP name and content, and the red badge for a failing message API
-* [ ] Update README.md (new trigger, manual check: real conversation with replies, smileys and links; unread conversation stays unread) and CLAUDE.md (click dispatch)
+* [x] Add `clubMailConversationIds(url)` in `lib/clubmail.js` for `https://www.joyclub.(de|com)/[lang/]clubmail/conversation/conversation-wrapper-personal-<a>-<b>/`
+* [x] Change `fetchClubMailImages` to take the user ids from the URL and drop the own id (`body[data-session-user-id]`); the profile path passes its single id
+* [x] Add `toClubMailZipRequest(raw, date)` → `{ zipName: '<Partner>_ClubMail_<timestamp>.zip', entries, reports }`; partner name from the partner's messages; failure → a new typed error with the reason "ClubMail unavailable"; no messages → `NothingToDownloadError`
+* [x] Dispatch in `handleActionClick`: conversation URL before `profileUserId`; reuse `extractAllWithProgress` and `downloadZip`
+* [x] Unit tests for `clubMailConversationIds` (both id orders, language prefix, non-matching URLs) and `toClubMailZipRequest`
+* [x] Integration test in `tests/integration/background.test.js`: a conversation URL never injects `fetchProfileAlbums`
+* [x] E2E: sanitised conversation page in `tests/e2e/fixtures/`, route it, assert the ZIP name and content, and the red badge for a failing message API
+* [x] Update README.md (new trigger, manual check: real conversation with replies, smileys and links; unread conversation stays unread) and CLAUDE.md (click dispatch)
 
 ## Verification
 
-* [ ] On a conversation URL the ZIP holds the same `ClubMail/` transcripts as the profile ZIP (md; html once task 02 is done) and the attachments, and nothing else
-* [ ] The ZIP name starts with the partner's name, not the user's
-* [ ] The ids in either order in the URL give the same conversation
-* [ ] A failing message API shows the red badge "ClubMail unavailable"; an empty conversation shows the "nothing to download" reason
-* [ ] No `read_conversation` request is sent
-* [ ] Profile and lightbox clicks behave as before
-* [ ] `npm test` and `npm run test:e2e` pass
+* [x] On a conversation URL the ZIP holds the same `ClubMail/` transcripts as the profile ZIP (md; html once task 02 is done) and the attachments, and nothing else
+  **Note:** Verified via E2E `an open conversation saves a ClubMail-only ZIP named after the partner` and unit `toClubMailZipRequest holds the attachments and both transcripts…`.
+* [x] The ZIP name starts with the partner's name, not the user's
+  **Note:** Verified via unit `takes the partner name even when the user wrote first` and the E2E above (first fixture message is from the user).
+* [x] The ids in either order in the URL give the same conversation
+  **Note:** Verified via unit `drops the own id from the two ids of a conversation URL, in either order`.
+* [x] A failing message API shows the red badge "ClubMail unavailable"; an empty conversation shows the "nothing to download" reason
+  **Note:** Verified via E2E `a failing ClubMail API on a conversation shows the red badge` and the integration `ClubMail conversation ZIP` failure/empty cases.
+* [x] No `read_conversation` request is sent
+  **Note:** Verified via the conversation E2E: every context request is recorded; the message list request is seen, `read_conversation` is not. The real site is a manual check (README).
+* [x] Profile and lightbox clicks behave as before
+  **Note:** Verified via the unchanged profile/lightbox unit, integration and E2E tests (all pass).
+* [x] `npm test` and `npm run test:e2e` pass
+  **Note:** 371 unit/integration tests and 13 E2E tests pass.
+
+## Notes
+
+* Implementation details beyond the design:
+  * `fetchClubMailImages(userIds)` also returns `partnerId`, so `toClubMailZipRequest` can find the partner's name (first named message of that id; a third user is ignored). The own profile (`[ownId]`) gives `{ origin, messages: [] }` without a request, so it gets no `ClubMail/` folder; two ids without the own one give `{ failed: true }`.
+  * `buildZip` now returns a ZIP of the reports alone when there are no entries but reports exist. Without this, a conversation without attachments failed with "download failed", against the design ("a ZIP that holds only the two transcripts").
+  * `ClubMailApiError` lives in `lib/profile.js` next to `AlbumApiError`; `toClubMailZipRequest` too, since it reuses `transcriptReports`.
+  * The API-phase tooltip stays "loading album list and ClubMail" on a conversation page (design: no progress changes).
+* Review fixes: the partner name skips nameless messages; integration test for a conversation without attachments.
+* Manual (needs a real JoyClub session, listed in README "Manual checks"): real conversation with replies, smileys and links, `conversation.html` offline; an unread conversation stays unread.

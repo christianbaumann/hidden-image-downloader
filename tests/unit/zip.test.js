@@ -172,6 +172,15 @@ describe('buildZip', () => {
     assert.equal(peak, FETCH_CONCURRENCY);
   });
 
+  it('zips only the reports for zero entries with reports', async () => {
+    const { fetch, calls } = stubFetch({});
+    const { blob, added, missing } = await buildZip([], { JSZip, fetch, reports: REPORTS });
+    assert.equal(added, 0);
+    assert.deepEqual(missing, []);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(Object.keys((await readZip(blob)).files), [SKIPPED_REPORT_NAME]);
+  });
+
   it('writes a report next to the photos', async () => {
     const { fetch } = stubFetch({ [URL_A]: okResponse(BYTES_A), [URL_B]: okResponse(BYTES_B) });
     const { blob } = await buildZip(ENTRIES, { JSZip, fetch, reports: REPORTS });

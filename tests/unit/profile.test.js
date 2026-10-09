@@ -2,16 +2,18 @@ import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AlbumApiError,
+  ClubMailApiError,
   fetchProfileAlbums,
   NothingToDownloadError,
   photoKey,
   profileUserId,
   toAlbumZipRequest,
+  toClubMailZipRequest,
   skippedReport,
   missingReport,
 } from '../../lib/profile.js';
 import { IMAGE_BASE, albumRaw, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
-import { ORIGIN, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
 const UUID_1 = '11111111-1111-4111-8111-111111111111';
@@ -334,6 +336,59 @@ describe('toAlbumZipRequest with ClubMail', () => {
     const request = toAlbumZipRequest(rawFor({ albums: [{ title: 'ClubMail', ids: ['2'] }] }), DATE, CLUBMAIL);
 
     assert.deepEqual(folders(request), ['ClubMail-2', 'ClubMail']);
+  });
+});
+
+describe('toClubMailZipRequest', () => {
+  const RAW = {
+    origin: ORIGIN,
+    partnerId: PARTNER.id,
+    messages: [textMessage('10', { from: ME, content: 'Hi' }), attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2')],
+  };
+
+  test('names the ZIP <partner>_ClubMail_<timestamp>.zip', () => {
+    assert.equal(toClubMailZipRequest(RAW, DATE).zipName, 'TestOwner_ClubMail_2026-10-08_174500.zip');
+  });
+
+  test('takes the partner name even when the user wrote first', () => {
+    assert.match(toClubMailZipRequest(RAW, DATE).zipName, /^TestOwner_/);
+  });
+
+  test('holds the attachments and both transcripts in ClubMail/ and nothing else', () => {
+    const request = toClubMailZipRequest(RAW, DATE);
+
+    assert.deepEqual(names(request), ['ClubMail/TestOwner_ClubMail_01_a1.jpg', 'ClubMail/TestOwner_ClubMail_02_a2.jpg']);
+    assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
+    assert.match(request.reports[0].text, /^# ClubMail with TestOwner\nExported 2026-10-08 17:45 · 3 messages\n/);
+  });
+
+  test('a conversation without attachments gives only the transcripts', () => {
+    const request = toClubMailZipRequest({ ...RAW, messages: [textMessage('10')] }, DATE);
+
+    assert.deepEqual(request.entries, []);
+    assert.equal(request.reports.length, 2);
+  });
+
+  test('falls back to unknown when the partner wrote nothing', () => {
+    const request = toClubMailZipRequest({ ...RAW, messages: [textMessage('10', { from: ME })] }, DATE);
+
+    assert.equal(request.zipName, 'unknown_ClubMail_2026-10-08_174500.zip');
+  });
+
+  test('sanitises the partner name', () => {
+    const messages = [textMessage('10', { from: { id: PARTNER.id, name: 'A/B: C' } })];
+
+    assert.match(toClubMailZipRequest({ ...RAW, messages }, DATE).zipName, /^A_B_-C_ClubMail_/);
+  });
+
+  test('throws ClubMailApiError for a failed or malformed result', () => {
+    for (const raw of [{ failed: true }, { origin: ORIGIN }, null, undefined]) {
+      assert.throws(() => toClubMailZipRequest(raw, DATE), ClubMailApiError);
+    }
+  });
+
+  test('throws NothingToDownloadError for an empty conversation', () => {
+    assert.throws(() => toClubMailZipRequest({ origin: ORIGIN, messages: [] }, DATE), NothingToDownloadError);
   });
 });
 

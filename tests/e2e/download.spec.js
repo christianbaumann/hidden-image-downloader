@@ -6,6 +6,7 @@ import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js'
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
+const CONVERSATION_URL = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-1000002-1000001/';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
 const HTTP_SERVER_ERROR = 500;
 const ALBUM_LIST = listResult({
@@ -26,6 +27,8 @@ const OTHER_SITE_URL = 'https://example.com/';
 const DOWNLOAD_TIMEOUT_MS = 10000;
 // #e0a000 as getBadgeBackgroundColor reports it.
 const WARNING_COLOR_RGBA = [224, 160, 0, 255];
+// #d00000 as getBadgeBackgroundColor reports it.
+const ERROR_COLOR_RGBA = [208, 0, 0, 255];
 const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_\\d{4}-\\d{2}-\\d{2}_\\d{6}';
 
 async function serve(page, url, html) {
@@ -226,6 +229,44 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
     'ClubMail/conversation.md',
     'skipped.txt',
   ]);
+});
+
+async function serveConversation(page, { clubMailStatus } = {}) {
+  await routeJoyclubApi(page.context(), { list: ALBUM_LIST, sources: [], messages: CLUBMAIL_MESSAGES, clubMailStatus });
+  await serve(page, CONVERSATION_URL, await fixture('conversation.html'));
+}
+
+test('an open conversation saves a ClubMail-only ZIP named after the partner', async ({ page, serviceWorker }) => {
+  const requests = [];
+  page.context().on('request', (request) => requests.push(request.url()));
+  await serveConversation(page);
+
+  const result = await clickAction(serviceWorker);
+
+  expect(result.filename).toMatch(/^TestOwner_ClubMail_\d{4}-\d{2}-\d{2}_\d{6}\.zip$/);
+  expect(await zipEntries(serviceWorker, result.downloadId)).toEqual([
+    'ClubMail/',
+    'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
+    'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
+    'ClubMail/conversation.html',
+    'ClubMail/conversation.md',
+  ]);
+  expect(await zipText(serviceWorker, result.downloadId, 'ClubMail/conversation.md'))
+    .toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n/);
+  expect(requests.some((url) => url.includes('get_latest_message_list_of_conversation'))).toBe(true);
+  expect(requests.some((url) => url.includes('graph') || url.includes('access_token'))).toBe(false);
+  expect(requests.some((url) => url.includes('read_conversation'))).toBe(false);
+  expect((await badgeState(serviceWorker)).text).toBe('');
+});
+
+test('a failing ClubMail API on a conversation shows the red badge', async ({ page, serviceWorker }) => {
+  await serveConversation(page, { clubMailStatus: HTTP_SERVER_ERROR });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(result).toBeNull();
+  expect(await badgeState(serviceWorker)).toEqual({ text: '!', title: 'Hidden Image Downloader: ClubMail unavailable' });
+  expect(await badgeColor(serviceWorker)).toEqual(ERROR_COLOR_RGBA);
 });
 
 test('lists a missing album photo in missing.txt and warns', async ({ page, serviceWorker, imageServer }) => {
