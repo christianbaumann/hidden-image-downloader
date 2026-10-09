@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, test } from 'node:test';
+import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AlbumApiError,
@@ -274,15 +274,35 @@ describe('fetchProfileAlbums', () => {
   const listBody = (list) => ({ data: { profileAlbum: { listByUserId: list } } });
   const sourcesBody = (itemList) => ({ data: { profileAlbum: { image: { source: { sourceByImageIdList: { itemList } } } } } });
 
+  // Mirror the constants inside fetchProfileAlbums, which cannot export them.
+  const TITLE_POLL_MS = 100;
+  const TITLE_STABLE_MS = 500;
+  const TITLE_WAIT_MS = 3000;
+  const MAX_TICKS = (2 * TITLE_WAIT_MS) / TITLE_POLL_MS;
+
+  // cards: an array, or (now) => array for a page that is still rendering; the mocked clock starts at 0.
   function stubDocument({ owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD] } = {}) {
-    const anchors = cards.map(({ href, title }) => ({
+    const anchor = ({ href, title }) => ({
       getAttribute: (name) => (name === 'href' ? href : null),
       querySelector: (selector) => (selector === '.title' ? { textContent: ` ${title} ` } : null),
-    }));
+    });
+    const cardsAt = typeof cards === 'function' ? cards : () => cards;
     globalThis.document = {
       querySelector: (selector) => (selector === 'h1.profile-base-info__user-name' && owner !== null ? { textContent: owner } : null),
-      querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? anchors : []),
+      querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? cardsAt(Date.now()).map(anchor) : []),
     };
+  }
+
+  // Advances the mocked clock until the fetcher settles; resolves with its result and the elapsed time.
+  async function run(promise) {
+    let settled = false;
+    promise.then(() => { settled = true; }, () => { settled = true; });
+    for (let ticks = 0; !settled; ticks++) {
+      if (ticks > MAX_TICKS) throw new Error('fetchProfileAlbums did not settle');
+      await new Promise(setImmediate);
+      if (!settled) mock.timers.tick(TITLE_POLL_MS);
+    }
+    return { result: await promise, elapsed: Date.now() };
   }
 
   beforeEach(() => {
@@ -296,16 +316,18 @@ describe('fetchProfileAlbums', () => {
       fetchCalls.push({ url, ...options, body: options.body && JSON.parse(options.body) });
       return responses[fetchCalls.length - 1]();
     };
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
     stubDocument();
   });
 
   afterEach(() => {
+    mock.timers.reset();
     globalThis.fetch = originalFetch;
     delete globalThis.document;
   });
 
   test('fetches token, album list and image sources in order', async () => {
-    const result = await fetchProfileAlbums(USER_ID);
+    const { result } = await run(fetchProfileAlbums(USER_ID));
 
     assert.deepEqual(result, { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
     const [token, list, sources] = fetchCalls;
@@ -324,7 +346,7 @@ describe('fetchProfileAlbums', () => {
   });
 
   test('every fetch gets an AbortSignal', async () => {
-    await fetchProfileAlbums(USER_ID);
+    await run(fetchProfileAlbums(USER_ID));
 
     assert.ok(fetchCalls.every((call) => call.signal instanceof AbortSignal));
   });
@@ -332,20 +354,71 @@ describe('fetchProfileAlbums', () => {
   test('reads the main album title only from the card without an album id', async () => {
     stubDocument({ cards: [REGULAR_CARD] });
 
-    assert.equal((await fetchProfileAlbums(USER_ID)).mainAlbumTitle, '');
+    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.mainAlbumTitle, '');
+  });
+
+  test('waits for a late main card and its final title', async () => {
+    const CARD_APPEARS_MS = 1000;
+    const DEFAULT_LABEL_MS = 150;
+    stubDocument({
+      cards: (now) => {
+        if (now < CARD_APPEARS_MS) return [];
+        const title = now < CARD_APPEARS_MS + DEFAULT_LABEL_MS ? 'Fotos von mir' : 'Fotos von uns';
+        return [REGULAR_CARD, { ...MAIN_CARD, title }];
+      },
+    });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= CARD_APPEARS_MS + DEFAULT_LABEL_MS + TITLE_STABLE_MS && elapsed < TITLE_WAIT_MS);
+  });
+
+  test('waits for the title while the API calls run', async () => {
+    const TOKEN_DELAY_MS = 1000;
+    const token = responses[0];
+    responses[0] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= TOKEN_DELAY_MS && elapsed < TOKEN_DELAY_MS + TITLE_STABLE_MS);
+  });
+
+  test('a rendered page answers after the title has been stable', async () => {
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= TITLE_STABLE_MS && elapsed < TITLE_STABLE_MS + 2 * TITLE_POLL_MS);
+  });
+
+  test('gives up on a missing main card after the wait limit', async () => {
+    stubDocument({ cards: [REGULAR_CARD] });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, '');
+    assert.ok(elapsed >= TITLE_WAIT_MS && elapsed < TITLE_WAIT_MS + 2 * TITLE_POLL_MS);
+  });
+
+  test('a title still changing at the wait limit gives an empty title', async () => {
+    const FLIP_MS = 300;
+    stubDocument({ cards: (now) => [{ ...MAIN_CARD, title: Math.floor(now / FLIP_MS) % 2 ? 'A' : 'B' }] });
+
+    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.mainAlbumTitle, '');
   });
 
   test('a missing owner heading gives an empty owner', async () => {
     stubDocument({ owner: null });
 
-    assert.equal((await fetchProfileAlbums(USER_ID)).owner, '');
+    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.owner, '');
   });
 
   test('skips the sources call when no album has ids', async () => {
     const empty = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
     responses[1] = () => jsonResponse(listBody(empty));
 
-    const result = await fetchProfileAlbums(USER_ID);
+    const { result } = await run(fetchProfileAlbums(USER_ID));
 
     assert.equal(fetchCalls.length, 2);
     assert.deepEqual(result.sources, []);
@@ -364,13 +437,13 @@ describe('fetchProfileAlbums', () => {
     test(`${name} → { failed: true }`, async () => {
       responses[index] = response;
 
-      assert.deepEqual(await fetchProfileAlbums(USER_ID), { failed: true });
+      assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { failed: true });
     });
   }
 
   test('stays self-contained when serialised like executeScript does', async () => {
     const serialised = new Function(`return (${fetchProfileAlbums.toString()})`)();
 
-    assert.deepEqual(await serialised(USER_ID), { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
+    assert.deepEqual((await run(serialised(USER_ID))).result, { owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES });
   });
 });

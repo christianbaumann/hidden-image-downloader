@@ -19,6 +19,7 @@ A Chrome/Firefox extension that downloads images which websites hide behind a tr
 - JoyClub writes `srcset` with bare commas (`a 1920w,b 1440w`). `largestSrcsetUrl` follows the HTML grammar: URLs are whitespace-free runs, descriptors end at the next comma.
 - JSZip is vendored as `vendor/jszip.min.js`, loaded by `offscreen.html` as a classic script (global `JSZip`). `tests/unit/vendor-jszip.test.js` pins it byte for byte to the npm devDependency.
 - Firefox has no `chrome.offscreen`; the profile ZIP needs another path there.
+- JoyClub renders profile album cards client-side: no card for ~0.5–2 s after load, then the main card briefly shows a default "Fotos von mir" before its real title. The GraphQL API has no main-album title, so `fetchProfileAlbums` waits (in parallel with the API calls) until the card title is unchanged for 500 ms, at most 3 s; otherwise the folder falls back to "Hauptalbum".
 - `ref/` and `sandbox/` hold real pages and downloads. They are gitignored — never commit their content. Commit only sanitised copies as test fixtures.
 
 ## Blueprint Repos
