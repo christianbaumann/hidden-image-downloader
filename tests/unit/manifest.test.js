@@ -21,8 +21,8 @@ test('manifest registers background.js as module service worker', () => {
   assert.ok(existsSync(resolve(root, manifest.background.service_worker)));
 });
 
-test('manifest requests only scripting, downloads, offscreen and contextMenus permissions', () => {
-  assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen', 'contextMenus']);
+test('manifest requests only scripting, downloads, offscreen, contextMenus and storage permissions', () => {
+  assert.deepEqual(manifest.permissions, ['scripting', 'downloads', 'offscreen', 'contextMenus', 'storage']);
 });
 
 test('manifest runs content.js in every JoyClub frame only', () => {

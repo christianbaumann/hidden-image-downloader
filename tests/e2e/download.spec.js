@@ -193,6 +193,30 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   expect(await logDownloadIds(serviceWorker)).toEqual([]);
 });
 
+function savedPhotos(serviceWorker) {
+  return serviceWorker.evaluate(async () => (await chrome.storage.local.get('saved:1000001'))['saved:1000001']?.photos);
+}
+
+test('a second click saves nothing new; "Download everything again" saves the full ZIP', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer);
+  const first = await clickAction(serviceWorker);
+  await zipEntries(serviceWorker, first);
+  await expect.poll(() => savedPhotos(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toHaveLength(2);
+
+  expect(await clickAction(serviceWorker)).toEqual({ nothingNew: true });
+  expect(await badgeState(serviceWorker)).toEqual({ text: '✓', title: 'Hidden Image Downloader: nothing new' });
+
+  // update() rejects an unknown id, so this proves Chrome created both menu items.
+  await serviceWorker.evaluate(() => chrome.contextMenus.update('download-everything-again', {}));
+  await serviceWorker.evaluate(() => chrome.contextMenus.update('save-hidden-image', {}));
+  const full = await serviceWorker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    return globalThis.handleMenuClick({ menuItemId: 'download-everything-again' }, tab);
+  });
+  expect((await zipEntries(serviceWorker, full)).filter((name) => name.endsWith('.jpg'))).toHaveLength(2);
+  expect(await savedPhotos(serviceWorker)).toHaveLength(2);
+});
+
 test('shows the ZIP progress on the badge before clearing it', async ({ page, serviceWorker, imageServer }) => {
   await serveProfile(page, imageServer);
   await recordBadgeTexts(serviceWorker);

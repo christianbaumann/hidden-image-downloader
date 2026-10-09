@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { albumRaw, listResult } from '../fixtures/album-api.js';
+import { IMAGE_BASE, albumRaw, listResult, testUuid } from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 
 const TAB = { id: 7 };
@@ -66,6 +66,26 @@ let createDocument;
 let closeDocument;
 let tabMessage;
 
+// chrome.storage area; values are cloned like Chrome serialises them.
+function storageArea() {
+  let items = {};
+  return {
+    get: async (key) => (key in items ? { [key]: structuredClone(items[key]) } : {}),
+    set: async (values) => {
+      items = { ...items, ...structuredClone(values) };
+    },
+    remove: async (key) => {
+      delete items[key];
+    },
+    items: () => items,
+    clear: () => {
+      items = {};
+    },
+  };
+}
+const localStorageArea = storageArea();
+const sessionStorageArea = storageArea();
+
 const record = (name) => async (details) => {
   calls.push([name, details]);
 };
@@ -118,6 +138,7 @@ globalThis.chrome = {
       return tabMessage(tabId, message, options);
     },
   },
+  storage: { local: localStorageArea, session: sessionStorageArea },
   scripting: {
     executeScript: async (options) => {
       calls.push(['executeScript', options]);
@@ -194,13 +215,15 @@ beforeEach(() => {
   createDocument = async () => {};
   closeDocument = async () => {};
   tabMessage = async () => HIDDEN_IMAGE;
+  localStorageArea.clear();
+  sessionStorageArea.clear();
   mock.method(console, 'warn', () => {});
 });
 
 describe('background registration', () => {
   test('registers one onClicked listener and exposes handleActionClick', () => {
     assert.equal(listeners.length, 1);
-    assert.equal(listeners[0], handleActionClick);
+    assert.equal(typeof listeners[0], 'function');
     assert.equal(globalThis.handleActionClick, handleActionClick);
   });
 
@@ -1183,7 +1206,7 @@ describe('failure log', () => {
     const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
     assert.equal(build.warning, true);
     assert.equal(typeof build.log.startedAt, 'number');
-    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'clubmail: failed']);
+    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'clubmail: failed', 'files: 2 of 2 new']);
   });
 
   test('build-zip carries no warning when ClubMail was read', async () => {
@@ -1250,10 +1273,10 @@ describe('"Save hidden image" context menu', () => {
   test('creates the menu on install for JoyClub pages only, in every context', () => {
     installedListeners.forEach((listener) => listener());
 
-    assert.deepEqual(createdMenus.at(-1), {
+    assert.deepEqual(createdMenus.find(({ id }) => id === 'save-hidden-image'), {
       id: 'save-hidden-image',
       title: 'Save hidden image',
-      contexts: ['all'],
+      contexts: ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'],
       documentUrlPatterns: ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'],
     });
     assert.deepEqual(menuListeners, [handleMenuClick]);
@@ -1304,5 +1327,181 @@ describe('"Save hidden image" context menu', () => {
   test('ignores other menu items', async () => {
     assert.equal(await handleMenuClick({ ...MENU_INFO, menuItemId: 'other' }, MENU_TAB), null);
     assert.deepEqual(calls, []);
+  });
+});
+
+describe('incremental export', () => {
+  const SAVED_KEY = `saved:${PROFILE_USER_ID}`;
+  const BOTH_PHOTOS = ['00000001', '00000002'];
+  const NEUTRAL_COLOR = '#5f6368';
+  const FULL_MENU_INFO = { menuItemId: 'download-everything-again' };
+  const settle = () => new Promise(setImmediate);
+  const buildRequests = () => callsNamed('sendMessage').filter(({ action }) => action === 'build-zip');
+  const saved = () => localStorageArea.items()[SAVED_KEY];
+
+  async function clickAndFinish(tab = PROFILE_TAB, state = 'complete') {
+    const result = await handleActionClick(tab);
+    fireDownloadChanged(result.downloadId, state);
+    await settle();
+    return result;
+  }
+
+  afterEach(async () => {
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await settle();
+  });
+
+  test('the first click zips every photo and keeps their keys pending until the download ends', async () => {
+    const result = await handleActionClick(PROFILE_TAB);
+
+    assert.equal(buildRequests()[0].entries.length, 2);
+    assert.deepEqual(sessionStorageArea.items(), {
+      [`pending:${result.downloadId}`]: { userId: PROFILE_USER_ID, record: { photos: BOTH_PHOTOS, attachments: [] } },
+    });
+    assert.equal(saved(), undefined);
+  });
+
+  test('a complete download moves the pending keys into the saved record', async () => {
+    await clickAndFinish();
+
+    assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: [] });
+    assert.deepEqual(sessionStorageArea.items(), {});
+  });
+
+  test('a second click without changes saves nothing and shows the neutral "nothing new" badge', async () => {
+    await clickAndFinish();
+    calls = [];
+
+    const result = await handleActionClick(PROFILE_TAB);
+
+    assert.deepEqual(result, { nothingNew: true });
+    assert.equal(buildRequests().length, 0);
+    assert.equal(callsNamed('download').length, 0);
+    assert.equal(lastBadgeText(), '✓');
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: NEUTRAL_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: nothing new');
+  });
+
+  test('an interrupted download is not recorded, so the next click zips the photos again', async () => {
+    await clickAndFinish(PROFILE_TAB, 'interrupted');
+
+    assert.equal(saved(), undefined);
+    assert.deepEqual(sessionStorageArea.items(), {});
+    await handleActionClick(PROFILE_TAB);
+    assert.equal(buildRequests().at(-1).entries.length, 2);
+  });
+
+  test('a new photo is zipped alone under its full-ZIP name, with complete reports', async () => {
+    localStorageArea.items()[SAVED_KEY] = { photos: ['00000001'], attachments: [] };
+
+    await handleActionClick(PROFILE_TAB);
+
+    const build = buildRequests()[0];
+    assert.deepEqual(build.entries.map(({ name }) => name), ['Aktuelles/TestOwner_Aktuelles_01_00000002.jpg']);
+    assert.deepEqual(build.reports, [{ name: 'skipped.txt', text: 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\n' }]);
+  });
+
+  test('a completed download adds its keys to the saved record', async () => {
+    localStorageArea.items()[SAVED_KEY] = { photos: ['00000001'], attachments: ['a0'], lastMessageId: '5' };
+
+    await clickAndFinish();
+
+    assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: ['a0'], lastMessageId: '5' });
+  });
+
+  test('missing photos are not recorded', async () => {
+    zipResponse = { url: BLOB_URL, added: 1, missing: [`${IMAGE_BASE}/${testUuid(2)}/orig/image_1920_k.jpg?cache=c`] };
+
+    await clickAndFinish();
+
+    assert.deepEqual(saved(), { photos: ['00000001'], attachments: [] });
+  });
+
+  test('a new message without attachment zips the transcripts only', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, partnerId: PARTNER.id, messages: [attachmentMessage('11', 'a1'), textMessage('12')] };
+    localStorageArea.items()[SAVED_KEY] = { photos: BOTH_PHOTOS, attachments: ['a1'], lastMessageId: '11' };
+
+    await clickAndFinish();
+
+    const build = buildRequests()[0];
+    assert.deepEqual(build.entries, []);
+    assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'ClubMail/conversation.md', 'ClubMail/conversation.html']);
+    assert.equal(saved().lastMessageId, '12');
+  });
+
+  test('"Download everything again" zips every photo and keeps the record', async () => {
+    await clickAndFinish();
+    calls = [];
+
+    const result = await handleMenuClick(FULL_MENU_INFO, PROFILE_TAB);
+    fireDownloadChanged(result.downloadId, 'complete');
+    await settle();
+
+    assert.equal(buildRequests()[0].entries.length, 2);
+    assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: [] });
+  });
+
+  test('a conversation records the attachments and the newest message under the partner id', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, partnerId: PARTNER.id, messages: [attachmentMessage('11', 'a1'), textMessage('12', { from: ME })] };
+
+    await clickAndFinish(CONVERSATION_TAB);
+
+    assert.deepEqual(localStorageArea.items()[`saved:${PARTNER.id}`], { photos: [], attachments: ['a1'], lastMessageId: '12' });
+    assert.deepEqual(await handleActionClick(CONVERSATION_TAB), { nothingNew: true });
+  });
+
+  test('a pending record from before a service worker restart is merged when its download completes', async () => {
+    const earlierId = 77;
+    sessionStorageArea.items()[`pending:${earlierId}`] = { userId: PROFILE_USER_ID, record: { photos: ['00000001'], attachments: [] } };
+
+    fireDownloadChanged(earlierId, 'complete');
+    await settle();
+
+    assert.deepEqual(saved(), { photos: ['00000001'], attachments: [] });
+  });
+
+  test('nothing new while ClubMail failed shows the amber warning and saves the log', async () => {
+    localStorageArea.items()[SAVED_KEY] = { photos: BOTH_PHOTOS, attachments: [] };
+    extracted.fetchClubMailImages = { failed: true, reason: 'HTTP 500' };
+
+    assert.deepEqual(await handleActionClick(PROFILE_TAB), { nothingNew: true });
+
+    assert.equal(contentDownloads().length, 0);
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: nothing new; ClubMail unavailable (HTTP 500)');
+    assert.match(logText(), /files: 0 of 2 new\n.*nothing new\n/s);
+  });
+
+  test('two downloads of one user finishing together both land in the record', async () => {
+    extracted.fetchClubMailImages = { origin: ORIGIN, partnerId: PARTNER.id, messages: [attachmentMessage('11', 'a1')] };
+    const first = await handleActionClick(PROFILE_TAB);
+    extracted.fetchClubMailImages = { origin: ORIGIN, partnerId: PARTNER.id, messages: [attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2')] };
+    const second = await handleActionClick(PROFILE_TAB);
+
+    fireDownloadChanged(first.downloadId, 'complete');
+    fireDownloadChanged(second.downloadId, 'complete');
+    await settle();
+
+    assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: ['a1', 'a2'], lastMessageId: '12' });
+  });
+
+  test('a failing pending write keeps the ZIP download and leaves the record alone', async () => {
+    mock.method(sessionStorageArea, 'set', async () => {
+      throw new Error('quota');
+    });
+
+    const result = await handleActionClick(PROFILE_TAB);
+
+    assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
+    assert.equal(lastBadgeText(), '');
+    assert.equal(logDownloads().length, 0);
+  });
+
+  test('creates the "Download everything again" menu on the toolbar icon', () => {
+    installedListeners.forEach((listener) => listener());
+
+    assert.deepEqual(createdMenus.find(({ id }) => id === 'download-everything-again'), {
+      id: 'download-everything-again', title: 'Download everything again', contexts: ['action'],
+    });
   });
 });

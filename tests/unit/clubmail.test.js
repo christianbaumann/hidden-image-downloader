@@ -262,6 +262,10 @@ describe('toClubMailConversation entries', () => {
     ]);
   });
 
+  test('carries the attach_id as attachmentId', () => {
+    assert.deepEqual(entries([attachmentMessage('11', 'a1')]).map(({ attachmentId }) => attachmentId), ['a1']);
+  });
+
   test('builds an absolute download URL from the message and its sample id', () => {
     const [entry] = entries([attachmentMessage('11', 'a1', { sampleId: 'conversation-sample-9' })]);
 

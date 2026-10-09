@@ -16,7 +16,7 @@ Right-click any image on a JoyClub page (album grid, profile cards, lightbox, fe
 
 ### Profile photos
 
-On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…`) or one of its albums (`/profile/fotoalbum/…`), the click saves every photo of every album you can see as one ZIP, `<Owner>.zip`. Everything in the ZIP sits in one top folder named like the ZIP (`<Owner>/`), so it extracts into that folder with every unzip tool. A second download of the same profile gets Chrome's usual `<Owner> (1).zip`. This applies even with a lightbox open there; use the lightbox on other pages for single photos.
+On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…`) or one of its albums (`/profile/fotoalbum/…`), the click saves every photo of every album you can see as one ZIP, `<Owner>.zip`. Everything in the ZIP sits in one top folder named like the ZIP (`<Owner>/`), so it extracts into that folder with every unzip tool. A later click saves only what is new (see "Only new files"), as `<Owner> (1).zip` and so on. This applies even with a lightbox open there; use the lightbox on other pages for single photos.
 
 - Each album gets its own folder, named after the album title. Duplicate names get `-2`, `-3`, …
 - The main album folder takes the title of its card ("Fotos von uns" → `Fotos-von-uns`). On an album page there is no such card, so the click waits about 3 s and names the folder `Hauptalbum`; the same happens if the card title cannot be read.
@@ -30,6 +30,14 @@ On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…
 ### ClubMail conversation
 
 On an open ClubMail conversation (`/clubmail/conversation/conversation-wrapper-personal-<id>-<id>/`), the click saves only that conversation as `<Partner>_ClubMail.zip`: inside the top folder `<Partner>_ClubMail/`, the `ClubMail/` folder with the attachments, `conversation.md` and `conversation.html`, as described above. It skips the album list. The badge shows `0%` → `10%` while the conversation loads, then the attachment count. If the conversation cannot be read, nothing is saved and the badge turns red with the tooltip "ClubMail unavailable (<reason>)", with the reasons listed above; an empty conversation shows "no lightbox image or profile photos found". A conversation without attachments gives a ZIP with only the two transcripts. The conversation is not marked as read.
+
+### Only new files
+
+The extension remembers which photos and ClubMail attachments it saved, per JoyClub user (the profile owner, or the conversation partner). A later click on that profile or conversation zips only the files not saved before, under the names and numbers they have in the full ZIP, so numbers have gaps. `skipped.txt` and the transcripts are always complete. If there are no new files but new messages, the ZIP holds only the transcripts. If there is nothing new at all, nothing is saved and the badge shows a grey `✓` with the tooltip "nothing new" (amber, with the ClubMail reason and the log as its own download, if the ClubMail conversation could not be read).
+
+A file counts as saved once its ZIP download is complete in Chrome. An interrupted or cancelled download, and photos listed in `missing.txt`, are not recorded, so the next click saves them again. The record lives in the Chrome profile (`chrome.storage.local`) and survives a cleared download history; removing the extension deletes it.
+
+To save everything again, right-click the toolbar icon and choose "Download everything again". It saves the full ZIP and keeps the record.
 
 You need to be logged in on the domain you are browsing (`joyclub.de` or `joyclub.com`): the extension reads the album list and the ClubMail conversation through JoyClub's own API with that session. If the album list cannot be read, the badge says "album list unavailable".
 
@@ -52,6 +60,7 @@ Manual checks (they need a real JoyClub session, which the tests cannot have):
 - Click on a real conversation with replies, smileys and links. Open `conversation.html` offline: the images show, replies are quoted, smileys are text, links work.
 - Export an unread conversation: it stays unread in JoyClub.
 - The ZIP on disk has the requested name (Playwright saves downloads under GUID names).
+- "Download everything again" shows when right-clicking the toolbar icon, and "Save hidden image" does not (Playwright cannot open either menu; the tests call the handler).
 - "Save hidden image" shows in Chrome's context menu on JoyClub pages and not on other sites, and saves the right image on a real album page, profile, feed and photo detail page (Playwright cannot open Chrome's context menu; the tests call its handler).
 
 `vendor/jszip.min.js` is JSZip from npm, pinned in `package.json`. To update it, bump the version, run `npm install`, then `cp node_modules/jszip/dist/jszip.min.js vendor/jszip.min.js` and restore its two header lines. `tests/unit/vendor-jszip.test.js` checks that the copy matches.

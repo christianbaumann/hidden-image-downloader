@@ -103,9 +103,9 @@ describe('toAlbumZipRequest', () => {
       albums: [{ title: 'Aktuelles', ids: ['2'] }, { title: 'Sie', ids: ['3'] }],
     }), DATE);
     assert.deepEqual(request.entries, [
-      { url: jpgUrl(1), name: `Fotos-von-uns/TestOwner_Fotos-von-uns_01_${keyOf(1)}.jpg` },
-      { url: jpgUrl(2), name: `Aktuelles/TestOwner_Aktuelles_01_${keyOf(2)}.jpg` },
-      { url: jpgUrl(3), name: `Sie/TestOwner_Sie_01_${keyOf(3)}.jpg` },
+      { url: jpgUrl(1), name: `Fotos-von-uns/TestOwner_Fotos-von-uns_01_${keyOf(1)}.jpg`, photoKey: keyOf(1) },
+      { url: jpgUrl(2), name: `Aktuelles/TestOwner_Aktuelles_01_${keyOf(2)}.jpg`, photoKey: keyOf(2) },
+      { url: jpgUrl(3), name: `Sie/TestOwner_Sie_01_${keyOf(3)}.jpg`, photoKey: keyOf(3) },
     ]);
   });
 
@@ -220,6 +220,7 @@ describe('toAlbumZipRequest', () => {
     const sources = [{ id: '1', result: { __typename: 'ProfileAlbumImageSourceSuccessResult', source: { sourceListJson: json } } }];
     const request = toAlbumZipRequest(albumRaw({ list: listResult({ main: ['1'] }), sources }), DATE);
     assert.deepEqual(names(request), ['Fotos-von-uns/TestOwner_Fotos-von-uns_01.jpg']);
+    assert.equal('photoKey' in request.entries[0], false);
   });
 
   test('falls back to unknown for an empty owner', () => {
@@ -264,6 +265,15 @@ describe('toAlbumZipRequest with ClubMail', () => {
     ]);
     assert.equal(request.clubMailFailed, false);
     assert.equal(request.clubMailReason, undefined);
+  });
+
+  test('carries the newest message id as lastMessageId', () => {
+    assert.equal(toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, CLUBMAIL).lastMessageId, '12');
+  });
+
+  test('has no lastMessageId without messages or when ClubMail failed', () => {
+    assert.equal('lastMessageId' in toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { origin: ORIGIN, messages: [] }), false);
+    assert.equal('lastMessageId' in toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, { failed: true }), false);
   });
 
   test('without a ClubMail result there is no clubMailReason', () => {
@@ -398,6 +408,10 @@ describe('toClubMailZipRequest', () => {
 
   test('names the ZIP <partner>_ClubMail.zip', () => {
     assert.equal(toClubMailZipRequest(RAW, DATE).zipName, 'TestOwner_ClubMail.zip');
+  });
+
+  test('carries the newest message id as lastMessageId', () => {
+    assert.equal(toClubMailZipRequest(RAW, DATE).lastMessageId, '12');
   });
 
   test('takes the partner name even when the user wrote first', () => {

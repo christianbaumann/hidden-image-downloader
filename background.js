@@ -1,5 +1,6 @@
 import { clubMailConversationIds, fetchClubMailImages, withReason } from './lib/clubmail.js';
 import { toHiddenImageCandidates } from './lib/hidden-image.js';
+import { filterNewEntries, mergeRecord, pendingKey, savedKey, savedRecord } from './lib/incremental.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import { LOG_FILENAME, createLog, logDataUrl, renderLog } from './lib/log.js';
 import {
@@ -13,6 +14,9 @@ const BADGE_TEXT = '!';
 const BADGE_ERROR_COLOR = '#d00000';
 const BADGE_WARNING_COLOR = '#e0a000';
 const BADGE_PROGRESS_COLOR = '#1a73e8';
+const BADGE_NEUTRAL_COLOR = '#5f6368';
+const NOTHING_NEW_TEXT = '✓';
+const NOTHING_NEW = 'nothing new';
 const API_PHASE_TITLE = 'loading album list and ClubMail';
 const CONFLICT_ACTION = 'uniquify';
 const PROBE_TIMEOUT_MS = 5000;
@@ -21,6 +25,7 @@ const OFFSCREEN_READY_LIMIT = 50;
 const OFFSCREEN_READY_DELAY_MS = 50;
 const OFFSCREEN_JUSTIFICATION = 'Build a ZIP of profile photos and hand it to chrome.downloads via a blob URL';
 const FINISHED_DOWNLOAD_STATES = new Set(['complete', 'interrupted']);
+const DOWNLOAD_COMPLETE = 'complete';
 const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
 const WARNING_SEPARATOR = '; ';
 const INJECTION_FAILED_REASON = 'extension could not run on the page';
@@ -29,7 +34,11 @@ const ZIP_EXTENSION = '.zip';
 const ZIP_WITHOUT_URL_REASON = 'no ZIP in the answer';
 const MENU_ID = 'save-hidden-image';
 const MENU_TITLE = 'Save hidden image';
-const MENU_CONTEXTS = ['all'];
+// Every page context; 'all' would also put the item on the toolbar icon's menu.
+const MENU_CONTEXTS = ['page', 'frame', 'selection', 'link', 'editable', 'image', 'video', 'audio'];
+const FULL_MENU_ID = 'download-everything-again';
+const FULL_MENU_TITLE = 'Download everything again';
+const FULL_MENU_CONTEXTS = ['action'];
 const JOYCLUB_PAGES = ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'];
 // Same value as DESCRIBE_ACTION in content.js.
 const DESCRIBE_IMAGE_ACTION = 'describe-hidden-image';
@@ -44,6 +53,8 @@ const zipJobTabs = new Map();
 let nextZipJobId = 0;
 // Opening and closing the document run one after the other, so overlapping clicks and closes can't collide.
 let offscreenQueue = Promise.resolve();
+// Merges into saved:<userId> run one after the other, so two finished downloads can't drop each other's keys.
+let recordQueue = Promise.resolve();
 
 class DownloadFailedError extends Error {
   name = 'DownloadFailedError';
@@ -98,6 +109,14 @@ async function showProgress(tabId, text, title) {
 
 const showApiProgress = (tabId, resolved, count) =>
   showProgress(tabId, `${overallPercent(PHASES.API, resolved, count)}%`, API_PHASE_TITLE);
+
+async function showNothingNew(tabId) {
+  await updateBadge([
+    chrome.action.setBadgeText({ tabId, text: NOTHING_NEW_TEXT }),
+    chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_NEUTRAL_COLOR }),
+    chrome.action.setTitle({ tabId, title: BADGE_TITLE_PREFIX + NOTHING_NEW }),
+  ]);
+}
 
 const showError = (tabId, reason) => showBadge(tabId, reason, BADGE_ERROR_COLOR);
 const showWarning = (tabId, reason) => showBadge(tabId, reason, BADGE_WARNING_COLOR);
@@ -238,7 +257,20 @@ async function buildZipOffscreen(tabId, { root, entries, reports, warning }, log
   return response;
 }
 
-async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFailed = false, clubMailReason }, log) {
+// The ZIP is already on its way, so a failing write only leaves its files unrecorded.
+async function rememberPending(downloadId, userId, record, log) {
+  try {
+    await chrome.storage.session.set({ [pendingKey(downloadId)]: { userId, record } });
+  } catch (error) {
+    log.add('record: not saved', { reason: error.name });
+    console.warn('saving the pending record failed');
+  }
+}
+
+// The pending record is stored before anything else is awaited, so it is there when the download finishes.
+async function downloadZip(tabId, userId, {
+  zipName, entries, reports = [], clubMailFailed = false, clubMailReason, lastMessageId,
+}, log) {
   activeZipJobs++;
   let response;
   let downloadId;
@@ -253,6 +285,7 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
     throw error;
   }
   zipDownloadIds.add(downloadId);
+  await rememberPending(downloadId, userId, savedRecord(entries, response.missing, lastMessageId), log);
   const { url, added, missing } = response;
   log.add('download started');
   const warnings = [
@@ -267,13 +300,40 @@ async function downloadZip(tabId, { zipName, entries, reports = [], clubMailFail
   return { url, filename: zipName, downloadId, added, missing };
 }
 
-async function onDownloadChanged({ id, state }) {
-  if (!zipDownloadIds.has(id) || !FINISHED_DOWNLOAD_STATES.has(state?.current)) {
+async function readSaved(userId) {
+  const key = savedKey(userId);
+  return (await chrome.storage.local.get(key))[key];
+}
+
+// pending:<downloadId> lives in storage.session, so it outlasts a service worker restart during the download.
+async function settlePendingRecord(downloadId, state) {
+  const key = pendingKey(downloadId);
+  const pending = (await chrome.storage.session.get(key))[key];
+  if (!pending) {
     return;
   }
-  zipDownloadIds.delete(id);
-  activeZipJobs--;
-  await closeOffscreenIfIdle();
+  await chrome.storage.session.remove(key);
+  if (state !== DOWNLOAD_COMPLETE) {
+    return;
+  }
+  const merge = async () => chrome.storage.local.set({
+    [savedKey(pending.userId)]: mergeRecord(await readSaved(pending.userId), pending.record),
+  });
+  const run = recordQueue.then(merge);
+  recordQueue = run.catch(() => {});
+  await run;
+}
+
+async function onDownloadChanged({ id, state }) {
+  if (!FINISHED_DOWNLOAD_STATES.has(state?.current)) {
+    return;
+  }
+  if (zipDownloadIds.has(id)) {
+    zipDownloadIds.delete(id);
+    activeZipJobs--;
+    await closeOffscreenIfIdle();
+  }
+  await settlePendingRecord(id, state.current);
 }
 
 // Sync on purpose: a returned promise would count as an async answer to the message.
@@ -319,6 +379,24 @@ async function downloadLog(log) {
   }
 }
 
+// full: skip the record of saved files. Nothing new and no new message → no ZIP, neutral badge.
+// Nothing new while ClubMail failed → amber badge and the log as its own download, since no ZIP holds it.
+async function downloadNewFiles(tabId, userId, request, full, log) {
+  const { request: filtered, nothingNew } = filterNewEntries(request, full ? undefined : await readSaved(userId));
+  log.add(full ? `files: ${request.entries.length}, full` : `files: ${filtered.entries.length} of ${request.entries.length} new`);
+  if (!nothingNew) {
+    return downloadZip(tabId, userId, filtered, log);
+  }
+  log.add(NOTHING_NEW);
+  if (request.clubMailFailed) {
+    await showWarning(tabId, [NOTHING_NEW, withReason(CLUBMAIL_UNAVAILABLE, request.clubMailReason)].join(WARNING_SEPARATOR));
+    await downloadLog(log);
+  } else {
+    await showNothingNew(tabId);
+  }
+  return { nothingNew: true };
+}
+
 async function saveSingleImage(candidates, log) {
   const { url, filename } = await firstAvailable(candidates, log);
   const downloadId = await startDownload(url, filename);
@@ -341,7 +419,8 @@ async function reportFailure(tabId, log, error) {
   return null;
 }
 
-export async function handleActionClick(tab) {
+// full: true saves every file again ("Download everything again").
+export async function handleActionClick(tab, { full = false } = {}) {
   await clearBadge(tab.id);
   const log = createLog();
   try {
@@ -351,7 +430,7 @@ export async function handleActionClick(tab) {
       log.add('path: conversation', { url: tab.url });
       const [clubMail] = await extractAllWithProgress(tab.id, [[fetchClubMailImages, [conversationIds], CLUBMAIL_FAILED]]);
       logClubMail(log, clubMail);
-      return await downloadZip(tab.id, toClubMailZipRequest(clubMail, date), log);
+      return await downloadNewFiles(tab.id, clubMail.partnerId, toClubMailZipRequest(clubMail, date), full, log);
     }
     const userId = profileUserId(tab.url);
     if (userId) {
@@ -362,7 +441,7 @@ export async function handleActionClick(tab) {
       ]);
       logAlbums(log, albums);
       logClubMail(log, clubMail);
-      return await downloadZip(tab.id, toAlbumZipRequest(albums, date, clubMail), log);
+      return await downloadNewFiles(tab.id, userId, toAlbumZipRequest(albums, date, clubMail), full, log);
     }
     log.add('path: lightbox', { url: tab.url });
     const raw = await extractFromTab(tab.id, extractLightboxData);
@@ -385,6 +464,9 @@ async function describeHiddenImage(tabId, frameId) {
 }
 
 export async function handleMenuClick(info, tab) {
+  if (info.menuItemId === FULL_MENU_ID) {
+    return handleActionClick(tab, { full: true });
+  }
   if (info.menuItemId !== MENU_ID) {
     return null;
   }
@@ -403,9 +485,10 @@ function createMenu() {
   chrome.contextMenus.create({
     id: MENU_ID, title: MENU_TITLE, contexts: MENU_CONTEXTS, documentUrlPatterns: JOYCLUB_PAGES,
   });
+  chrome.contextMenus.create({ id: FULL_MENU_ID, title: FULL_MENU_TITLE, contexts: FULL_MENU_CONTEXTS });
 }
 
-chrome.action.onClicked.addListener(handleActionClick);
+chrome.action.onClicked.addListener((tab) => handleActionClick(tab));
 chrome.runtime.onInstalled.addListener(createMenu);
 chrome.contextMenus.onClicked.addListener(handleMenuClick);
 chrome.downloads.onDeterminingFilename.addListener(suggestOwnFilename);

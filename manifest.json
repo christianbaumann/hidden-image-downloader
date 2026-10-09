@@ -16,7 +16,8 @@
     "scripting",
     "downloads",
     "offscreen",
-    "contextMenus"
+    "contextMenus",
+    "storage"
   ],
   "host_permissions": [
     "https://www.joyclub.de/*",
