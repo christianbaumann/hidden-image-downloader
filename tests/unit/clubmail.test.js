@@ -317,3 +317,93 @@ describe('toClubMailConversation messages', () => {
     assert.equal(message.attachment, null);
   });
 });
+
+describe('toClubMailConversation own attachments', () => {
+  const convert = (messages) => toClubMailConversation({ origin: ORIGIN, ownId: ME.id, messages }, 'TestOwner', 'ClubMail');
+  const names = (messages) => convert(messages).entries.map(({ name }) => name);
+  const own = (id, attachId, options = {}) => attachmentMessage(id, attachId, { from: ME, ...options });
+
+  test('puts own attachments into <folder>/Own/<own name>_<folder>_<NN>_<attach_id>.<ext>', () => {
+    assert.deepEqual(names([attachmentMessage('1', 'a1'), own('2', 'a2')]), [
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/Own/TestMe_ClubMail_01_a2.jpg',
+    ]);
+  });
+
+  test('numbers own and partner attachments separately, in message order', () => {
+    assert.deepEqual(names([attachmentMessage('1', 'a1'), own('2', 'a2'), attachmentMessage('3', 'a3'), own('4', 'a4')]), [
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/Own/TestMe_ClubMail_01_a2.jpg',
+      'ClubMail/TestOwner_ClubMail_02_a3.jpg',
+      'ClubMail/Own/TestMe_ClubMail_02_a4.jpg',
+    ]);
+  });
+
+  test('pads per folder: 100 own attachments get three digits, one partner attachment keeps two', () => {
+    const result = names([attachmentMessage('0', 'p0'), ...Array.from({ length: 100 }, (_, index) => own(String(index + 1), `a${index}`))]);
+
+    assert.equal(result[0], 'ClubMail/TestOwner_ClubMail_01_p0.jpg');
+    assert.equal(result[1], 'ClubMail/Own/TestMe_ClubMail_001_a0.jpg');
+    assert.equal(result[100], 'ClubMail/Own/TestMe_ClubMail_100_a99.jpg');
+  });
+
+  test('99 own attachments keep two digits', () => {
+    const result = names(Array.from({ length: 99 }, (_, index) => own(String(index + 1), `a${index}`)));
+
+    assert.equal(result[98], 'ClubMail/Own/TestMe_ClubMail_99_a98.jpg');
+  });
+
+  test('takes the own name from an own text message when the attachment message has none', () => {
+    const nameless = { ...own('2', 'a2'), from_user_name: undefined, from_user: undefined };
+
+    assert.deepEqual(names([textMessage('1', { from: ME }), nameless]), ['ClubMail/Own/TestMe_ClubMail_01_a2.jpg']);
+  });
+
+  test('skips own messages without a name and takes the first real one', () => {
+    const blank = { ...textMessage('1', { from: ME }), from_user_name: '  ', from_user: undefined };
+
+    assert.deepEqual(names([blank, own('2', 'a2', { from: { ...ME, name: 'Me Later' } })]), ['ClubMail/Own/Me-Later_ClubMail_01_a2.jpg']);
+  });
+
+  test('falls back to unknown when no own message has a name', () => {
+    const nameless = { ...own('2', 'a2'), from_user_name: undefined, from_user: undefined };
+
+    assert.deepEqual(names([nameless]), ['ClubMail/Own/unknown_ClubMail_01_a2.jpg']);
+  });
+
+  test('sanitises the own name', () => {
+    assert.deepEqual(names([own('1', 'a1', { from: { ...ME, name: 'A/B: C' } })]), ['ClubMail/Own/A_B_-C_ClubMail_01_a1.jpg']);
+  });
+
+  test('without ownId every attachment stays in <folder>/', () => {
+    const raw = { origin: ORIGIN, messages: [own('1', 'a1')] };
+
+    assert.deepEqual(toClubMailConversation(raw, 'TestOwner', 'ClubMail').entries.map(({ name }) => name), ['ClubMail/TestOwner_ClubMail_01_a1.jpg']);
+  });
+
+  test('a numeric from_user_id matching ownId goes to Own/', () => {
+    assert.deepEqual(names([{ ...own('1', 'a1'), from_user_id: Number(ME.id) }]), ['ClubMail/Own/TestMe_ClubMail_01_a1.jpg']);
+  });
+
+  test('a notice without sender stays in the partner folder', () => {
+    const notice = { ...attachmentMessage('1', 'a1'), from_user_id: undefined, from_user_name: undefined, from_user: undefined };
+
+    assert.deepEqual(names([notice]), ['ClubMail/TestOwner_ClubMail_01_a1.jpg']);
+  });
+
+  test('an own attachment names its file Own/<file>; without file_name its name is the bare file', () => {
+    const result = convert([own('1', 'a1'), own('2', 'a2', { fileType: '.pdf', fileName: '' })]).messages;
+
+    assert.deepEqual(result.map(({ attachment }) => attachment), [
+      { file: 'Own/TestMe_ClubMail_01_a1.jpg', name: 'photo-1.jpg', isImage: true },
+      { file: 'Own/TestMe_ClubMail_02_a2.pdf', name: 'TestMe_ClubMail_02_a2.pdf', isImage: false },
+    ]);
+  });
+
+  test('the same attach_id from both sides gives two distinct entries', () => {
+    assert.deepEqual(names([attachmentMessage('1', 'x'), own('2', 'x')]), [
+      'ClubMail/TestOwner_ClubMail_01_x.jpg',
+      'ClubMail/Own/TestMe_ClubMail_01_x.jpg',
+    ]);
+  });
+});

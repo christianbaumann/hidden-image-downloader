@@ -21,6 +21,7 @@ const CLUBMAIL_MESSAGES = [
   GREETING,
   attachmentMessage('11', 'e2e-a1', { content: 'Photo', reply: GREETING }),
   attachmentMessage('12', 'e2e-a2'),
+  attachmentMessage('13', 'e2e-a3', { from: ME }),
 ];
 const RESTRICTED_ONLY_LIST = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
 const OTHER_SITE_URL = 'https://example.com/';
@@ -193,6 +194,8 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'Aktuelles/',
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     'ClubMail/',
+    'ClubMail/Own/',
+    'ClubMail/Own/TestMe_ClubMail_01_e2e-a3.jpg',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
     'ClubMail/conversation.html',
@@ -202,13 +205,14 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'skipped.txt',
   ]);
   const transcript = await zipText(serviceWorker, result, 'ClubMail/conversation.md');
-  expect(transcript).toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n\n## 2026-09-30\n/);
+  expect(transcript).toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 4 messages\n\n## 2026-09-30\n/);
   expect(transcript).toContain('**TestMe** · 21:10\nHi :-) & bye\n');
   expect(transcript).toContain('**TestOwner** · 21:11\n> Reply to TestMe, 2026-09-30 21:10: Hi :-) & bye\n\nPhoto\n\n![attachment](TestOwner_ClubMail_01_e2e-a1.jpg)\n');
   expect(transcript).toContain('**TestOwner** · 21:12\n![attachment](TestOwner_ClubMail_02_e2e-a2.jpg)\n');
+  expect(transcript).toContain('**TestMe** · 21:13\n![attachment](Own/TestMe_ClubMail_01_e2e-a3.jpg)\n');
   const html = await zipText(serviceWorker, result, 'ClubMail/conversation.html');
   expect([...html.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => src))
-    .toEqual(['TestOwner_ClubMail_01_e2e-a1.jpg', 'TestOwner_ClubMail_02_e2e-a2.jpg']);
+    .toEqual(['TestOwner_ClubMail_01_e2e-a1.jpg', 'TestOwner_ClubMail_02_e2e-a2.jpg', 'Own/TestMe_ClubMail_01_e2e-a3.jpg']);
   expect(html).toContain('<p>Hi :-) &amp; bye</p>');
   expect(html).not.toMatch(/(?:src|href)="(?:https?:)?\/\//);
   expect((await badgeState(serviceWorker)).text).toBe('');
@@ -232,6 +236,8 @@ test('a profile with only restricted albums saves the ClubMail attachments', asy
 
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'ClubMail/',
+    'ClubMail/Own/',
+    'ClubMail/Own/TestMe_ClubMail_01_e2e-a3.jpg',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
     'ClubMail/conversation.html',
@@ -255,15 +261,17 @@ test('an open conversation saves a ClubMail-only ZIP named after the partner', a
   expect(result.filename).toBe('TestOwner_ClubMail.zip');
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'ClubMail/',
+    'ClubMail/Own/',
+    'ClubMail/Own/TestMe_ClubMail_01_e2e-a3.jpg',
     'ClubMail/TestOwner_ClubMail_01_e2e-a1.jpg',
     'ClubMail/TestOwner_ClubMail_02_e2e-a2.jpg',
     'ClubMail/conversation.html',
     'ClubMail/conversation.md',
   ]);
   expect(await zipText(serviceWorker, result, 'ClubMail/conversation.md'))
-    .toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 3 messages\n/);
+    .toMatch(/^# ClubMail with TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 4 messages\n/);
   const html = await zipText(serviceWorker, result, 'ClubMail/conversation.html');
-  expect([...html.matchAll(/<div class="([^"]+)">/g)].map(([, name]) => name)).toEqual(['message own', 'message', 'message']);
+  expect([...html.matchAll(/<div class="([^"]+)">/g)].map(([, name]) => name)).toEqual(['message own', 'message', 'message', 'message own']);
   expect(requests.some((url) => url.includes('get_latest_message_list_of_conversation'))).toBe(true);
   expect(requests.some((url) => url.includes('graph') || url.includes('access_token'))).toBe(false);
   expect(requests.some((url) => url.includes('read_conversation'))).toBe(false);

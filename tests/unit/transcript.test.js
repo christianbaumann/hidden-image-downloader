@@ -59,6 +59,16 @@ describe('renderConversationMarkdown', () => {
     assert.match(markdown, /· 21:14\n\[plan\.pdf\]\(Max_%28B%29_ClubMail_02_a2\.pdf\)\n$/);
   });
 
+  test('an attachment in a subfolder keeps the / and encodes each segment', () => {
+    const markdown = render([
+      message({ attachment: { file: 'Own/TestMe_ClubMail_01_a1.jpg', name: 'beach.jpg', isImage: true } }),
+      message({ attachment: { file: 'Own/Max_(B)_ClubMail_02_a#2.pdf', name: 'plan.pdf', isImage: false } }),
+    ]);
+
+    assert.match(markdown, /!\[attachment\]\(Own\/TestMe_ClubMail_01_a1\.jpg\)\n/);
+    assert.match(markdown, /\[plan\.pdf\]\(Own\/Max_%28B%29_ClubMail_02_a%232\.pdf\)\n$/);
+  });
+
   test('escapes Markdown in partner, author, reply and attachment names', () => {
     const reply = { author: '*Bold*', time: at(30, 21, 10), content: '[x](https://evil)' };
     const markdown = render([
@@ -127,6 +137,22 @@ describe('renderConversationHtml', () => {
 
     assert.match(html, /<p><img src="TestOwner_ClubMail_01_a1\.jpg" alt="attachment"><\/p>/);
     assert.match(html, /<p><a href="Max_\(B\)_ClubMail_02_a%232\.pdf">plan\.pdf<\/a><\/p>/);
+  });
+
+  test('an attachment in a subfolder keeps the / and encodes each segment', () => {
+    const html = renderHtml([
+      message({ attachment: { file: 'Own/TestMe_ClubMail_01_a1.jpg', name: 'beach.jpg', isImage: true } }),
+      message({ attachment: { file: 'Own/Max_(B)_ClubMail_02_a#2.pdf', name: 'plan.pdf', isImage: false } }),
+    ]);
+
+    assert.match(html, /<p><img src="Own\/TestMe_ClubMail_01_a1\.jpg" alt="attachment"><\/p>/);
+    assert.match(html, /<p><a href="Own\/Max_\(B\)_ClubMail_02_a%232\.pdf">plan\.pdf<\/a><\/p>/);
+  });
+
+  test('a quote in a subfolder file name stays inside the href', () => {
+    const html = renderHtml([message({ attachment: { file: `Own/x"onerror="a()'.pdf`, name: 'x.pdf', isImage: false } })]);
+
+    assert.match(html, /<a href="Own\/x%22onerror%3D%22a\(\)&#39;\.pdf">x\.pdf<\/a>/);
   });
 
   test('escapes <script>, quotes and & in text, partner, author, reply and file names', () => {

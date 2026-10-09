@@ -332,6 +332,28 @@ describe('toAlbumZipRequest with ClubMail', () => {
     assert.deepEqual(request.reports.map(({ name }) => name), ['skipped.txt']);
   });
 
+  test('puts the user\'s own attachments into ClubMail/Own/', () => {
+    const withOwn = { origin: ORIGIN, ownId: ME.id, messages: [attachmentMessage('11', 'a1'), attachmentMessage('12', 'a2', { from: ME })] };
+
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, withOwn);
+
+    assert.deepEqual(names(request).filter((name) => name.startsWith('ClubMail/')), [
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/Own/TestMe_ClubMail_01_a2.jpg',
+    ]);
+  });
+
+  test('conversation.html links every attachment, including Own/, to its entry', () => {
+    const withOwn = { origin: ORIGIN, ownId: ME.id, messages: [attachmentMessage('11', 'a1', { from: ME }), attachmentMessage('12', 'a2')] };
+
+    const request = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, withOwn);
+
+    const [html] = request.reports.filter(({ name }) => name === 'ClubMail/conversation.html');
+    const sources = [...html.text.matchAll(/<img src="([^"]+)"/g)].map(([, src]) => `ClubMail/${src}`);
+    assert.deepEqual(sources, request.entries.map(({ name }) => name).filter((name) => name.startsWith('ClubMail/')));
+    assert.ok(sources.includes('ClubMail/Own/TestMe_ClubMail_01_a1.jpg'));
+  });
+
   test('an album titled ClubMail gets the folder ClubMail-2', () => {
     const request = toAlbumZipRequest(rawFor({ albums: [{ title: 'ClubMail', ids: ['2'] }] }), DATE, CLUBMAIL);
 
@@ -360,6 +382,17 @@ describe('toClubMailZipRequest', () => {
     assert.deepEqual(names(request), ['ClubMail/TestOwner_ClubMail_01_a1.jpg', 'ClubMail/TestOwner_ClubMail_02_a2.jpg']);
     assert.deepEqual(request.reports.map(({ name }) => name), ['ClubMail/conversation.md', 'ClubMail/conversation.html']);
     assert.match(request.reports[0].text, /^# ClubMail with TestOwner\nExported 2026-10-08 17:45 · 3 messages\n/);
+  });
+
+  test('own attachments go to ClubMail/Own/, the ZIP keeps the partner name', () => {
+    const request = toClubMailZipRequest({ ...RAW, ownId: ME.id, messages: [...RAW.messages, attachmentMessage('13', 'a3', { from: ME })] }, DATE);
+
+    assert.equal(request.zipName, 'TestOwner_ClubMail.zip');
+    assert.deepEqual(names(request), [
+      'ClubMail/TestOwner_ClubMail_01_a1.jpg',
+      'ClubMail/TestOwner_ClubMail_02_a2.jpg',
+      'ClubMail/Own/TestMe_ClubMail_01_a3.jpg',
+    ]);
   });
 
   test('a conversation without attachments gives only the transcripts', () => {
