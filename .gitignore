@@ -8,3 +8,4 @@ playwright-report/
 docs/agents/
 sandbox/
 ref/
+.agents/worktrees/
