@@ -6,7 +6,7 @@ dependencies:
 
 # Task 08: profile.md and profile.html in the profile ZIP
 
-**Status:** Done, verified live (2026-10-09); awaiting the user's approval.
+**Status:** Done, verified live and approved (2026-10-09). Commits `a7cad82`, `4c8e359`.
 
 The profile ZIP holds `profile.md` and `profile.html` at its root: the profile text, then one section per album with its description and the photo list (title, description, hashtags → relative file link).
 
