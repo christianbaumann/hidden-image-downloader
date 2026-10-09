@@ -60,4 +60,6 @@ With the user's session (playwright-cli, extension loaded, a profile with 1 phot
 * `lastMessageId` set back (stands in for a new message; no real message was sent) → ZIP with only `ClubMail/conversation.md` and `.html`; the next click gives "nothing new" again.
 * "Download everything again" (`handleMenuClick`) → full ZIP, record unchanged; the next click gives "nothing new".
 * ZIP download cancelled in `downloads.onCreated` → `interrupted` (`USER_CANCELED`), nothing recorded, the next click saves all 11 files again.
-* Not checked: Chrome's toolbar icon menu itself (Playwright cannot open it). The E2E test confirms both items exist via `contextMenus.update`.
+* Toolbar icon menu: checked by the user ("Download everything again" present, "Save hidden image" absent).
+
+**Approved** by the user on 2026-10-09.
