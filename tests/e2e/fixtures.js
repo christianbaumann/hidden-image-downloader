@@ -85,7 +85,7 @@ export async function routeJoyclubApi(context, {
   const videoIds = videos.map((video) => video.id ?? video);
   await context.route(VIDEO_LIST_URL, (route) => route.fulfill({ json: listAnswer(videoIds) }));
   await context.route(VIDEO_DATA_URL, (route) => route.fulfill({
-    json: dataAnswer(videos.map((video) => videoItem(video.id ?? video, { source: video.source ?? true }))),
+    json: dataAnswer(videos.map((video) => videoItem(video.id ?? video, { source: video.source ?? true, title: video.title }))),
   }));
   await context.route(VIDEO_SIGNED_URL, (route) => route.fulfill({ json: signedAnswer() }));
   await context.route(TOKEN_URL, (route) => route.fulfill({

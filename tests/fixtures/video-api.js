@@ -7,6 +7,7 @@ export const VIDEO_HOST = 'uservideo.joyclub.de';
 export const VIDEO_ORIGIN = `https://${VIDEO_HOST}`;
 export const VIDEO_ID_1 = '900001';
 export const VIDEO_ID_2 = '900002';
+export const VIDEO_TITLE = 'Am Strand';
 export const SIGNED = { Policy: 'policy-1', Signature: 'signature-1', 'Key-Pair-Id': 'KEYPAIR1' };
 export const SIGNED_QUERY = new URLSearchParams(SIGNED).toString();
 export const SIGNED_COOKIES = {
@@ -27,13 +28,13 @@ export const variantNameOf = (id, height) => `${id}OttHlsTsAvcAac_9x16_${height}
 const attribute = (value) => JSON.stringify(value).replaceAll('/', '\\/').replaceAll('"', '&quot;');
 
 // One lightbox_data_list item; source: false gives the answer of a locked FSK18 session (no data-video).
-export function videoItem(id, { source = true, blurred = !source } = {}) {
+export function videoItem(id, { source = true, blurred = !source, title = VIDEO_TITLE } = {}) {
   const guid = guidOf(id);
   const config = { identifier: `user_${guid}`, modus: 'user', payload_json: payloadOf(id) };
   const video = source ? ` data-video="${attribute({ video_source: masterUrlOf(id), autoplay: 'autoplay' })}"` : '';
   return {
     media_id: Number(id),
-    media_title: 'Beispiel',
+    media_title: title,
     media_fsk18_blurred: blurred,
     media_source: 4,
     media_html: `<div class="video_wrapper"${video} data-cookie-config="${attribute(config)}"><img src="/img/_.gif"></div>`,

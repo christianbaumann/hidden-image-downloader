@@ -239,7 +239,7 @@ test('remuxes a profile video into Videos/ as mp4 and lists a locked one in skip
 
   const result = await clickAction(serviceWorker);
 
-  const videoName = `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`;
+  const videoName = `Videos/TestOwner_Videos_01_Am-Strand_${VIDEO_ID_1}.mp4`;
   expect((await zipEntries(serviceWorker, result)).filter((name) => name.startsWith('Videos/'))).toEqual(['Videos/', videoName]);
   const mp4 = await (await loadZip(serviceWorker, result.downloadId)).file(zipRoot(result) + videoName).async('uint8array');
   expect(new TextDecoder().decode(mp4.subarray(4, 8))).toBe('ftyp');

@@ -141,6 +141,14 @@ describe('videos', () => {
     assert.deepEqual(request.entries, [other]);
   });
 
+  test('a video saved before it got a title in its name is still not new', () => {
+    const titled = { ...VIDEO, name: 'Videos/O_Videos_01_Am-Strand_900001.mp4' };
+
+    const { request } = filterNewEntries({ entries: [titled], reports: [] }, { photos: [], attachments: [], videos: ['900001'] });
+
+    assert.deepEqual(request.entries, []);
+  });
+
   test('a video id never matches a photo key or attachment id', () => {
     const { request } = filterNewEntries({ entries: [VIDEO], reports: [] }, { photos: ['900001'], attachments: ['900001'] });
 

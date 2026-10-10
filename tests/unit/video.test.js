@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { VIDEOS_FOLDER, fetchProfileVideos, signedQueryOf, toVideoEntries, unsupportedVideosLine } from '../../lib/video.js';
 import {
-  JOYCLUB_ORIGIN, SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, dataAnswer, guidOf, listAnswer, masterUrlOf, signedAnswer, signingUrlOf,
+  JOYCLUB_ORIGIN, SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, VIDEO_TITLE, dataAnswer, guidOf, listAnswer, masterUrlOf, signedAnswer, signingUrlOf,
   videoItem,
 } from '../fixtures/video-api.js';
 
@@ -42,13 +42,23 @@ describe('fetchProfileVideos', () => {
     delete globalThis.location;
   });
 
-  test('returns every video with its master playlist and signed query, in list order', async () => {
+  test('returns every video with its master playlist, signed query and title, in list order', async () => {
     assert.deepEqual(await fetchProfileVideos(USER_ID), {
       videos: [
-        { id: VIDEO_ID_1, source: masterUrlOf(VIDEO_ID_1), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_1) },
-        { id: VIDEO_ID_2, source: masterUrlOf(VIDEO_ID_2), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_2) },
+        { id: VIDEO_ID_1, source: masterUrlOf(VIDEO_ID_1), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_1), title: VIDEO_TITLE },
+        { id: VIDEO_ID_2, source: masterUrlOf(VIDEO_ID_2), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_2), title: VIDEO_TITLE },
       ],
     });
+  });
+
+  test('leaves the title out when media_title is empty or missing', async () => {
+    const untitled = { ...videoItem(VIDEO_ID_2) };
+    delete untitled.media_title;
+    answers['/video/lightbox/data'] = () => jsonResponse(dataAnswer([videoItem(VIDEO_ID_1, { title: '' }), untitled]));
+
+    const { videos } = await fetchProfileVideos(USER_ID);
+
+    assert.deepEqual(videos.map((video) => 'title' in video), [false, false]);
   });
 
   test('posts list and data with cache_killer and the numeric user id', async () => {
@@ -187,6 +197,22 @@ describe('toVideoEntries', () => {
   test('no videos asked for, or none there → nothing', () => {
     assert.deepEqual(toVideoEntries(undefined, OWNER), { entries: [], skipped: '' });
     assert.deepEqual(toVideoEntries({ videos: [] }, OWNER), { entries: [], skipped: '' });
+  });
+
+  test('puts a usable title before the id, sanitised like a photo title', () => {
+    const { entries } = toVideoEntries({ videos: [{ ...playable(VIDEO_ID_1), title: 'Am Strand: Teil 1' }] }, OWNER);
+
+    assert.equal(entries[0].name, `Videos/TestOwner_Videos_01_Am-Strand_-Teil-1_${VIDEO_ID_1}.mp4`);
+    assert.equal(entries[0].videoId, VIDEO_ID_1);
+  });
+
+  test('a placeholder or blank title keeps the name without title', () => {
+    const { entries } = toVideoEntries({ videos: [{ ...playable(VIDEO_ID_1), title: '...' }, { ...playable(VIDEO_ID_2), title: '  ' }] }, OWNER);
+
+    assert.deepEqual(entries.map(({ name }) => name), [
+      `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`,
+      `Videos/TestOwner_Videos_02_${VIDEO_ID_2}.mp4`,
+    ]);
   });
 
   test('uses the given folder', () => {
