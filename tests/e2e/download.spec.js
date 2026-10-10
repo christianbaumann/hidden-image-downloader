@@ -203,7 +203,7 @@ test('downloads every accessible album into its own folder', async ({ page, serv
     'Aktuelles/',
     'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
     'Fotos-von-uns/',
-    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_Am-See_00000001.jpg',
     'profile.html',
     'profile.md',
     'skipped.txt',
@@ -257,7 +257,7 @@ test('writes profile.md and profile.html whose links open the photos in the ZIP'
   const markdown = await zipText(serviceWorker, result, 'profile.md');
   expect(markdown).toMatch(/^# TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 2 photos\n/);
   expect(markdown).toContain('### Motto\n\nCarpe diem\n\n### About\n\nHallo \\*wink\\*\n\n\\<script\\>alert(1)\\</script\\> **zwei**\n');
-  expect(markdown).toContain('- [Am See](Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg)\n  #sommer\n');
+  expect(markdown).toContain('- [Am See](Fotos-von-uns/TestOwner_Fotos-von-uns_01_Am-See_00000001.jpg)\n  #sommer\n');
   const html = await zipText(serviceWorker, result, 'profile.html');
   expect(html).toContain('<p>&lt;script&gt;alert(1)&lt;/script&gt; <strong>zwei</strong></p>');
   expect(html).not.toContain('<script');
@@ -324,7 +324,7 @@ test('adds the ClubMail attachments to the album ZIP', async ({ page, serviceWor
     'ClubMail/conversation.html',
     'ClubMail/conversation.md',
     'Fotos-von-uns/',
-    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_Am-See_00000001.jpg',
     'profile.html',
     'profile.md',
     'skipped.txt',
@@ -423,7 +423,7 @@ test('lists a missing album photo in missing.txt and log.txt and warns', async (
 
   expect(await zipEntries(serviceWorker, result)).toEqual([
     'Fotos-von-uns/',
-    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_00000001.jpg',
+    'Fotos-von-uns/TestOwner_Fotos-von-uns_01_Am-See_00000001.jpg',
     'log.txt',
     'missing.txt',
     'profile.html',

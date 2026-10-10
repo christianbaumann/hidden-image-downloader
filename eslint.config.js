@@ -12,6 +12,7 @@ const browserGlobals = {
   AbortSignal: 'readonly',
   Blob: 'readonly',
   TextDecoder: 'readonly',
+  TextEncoder: 'readonly',
   setTimeout: 'readonly',
   globalThis: 'readonly',
 };

@@ -7,6 +7,8 @@ import {
   photoStem,
   folderSegment,
   reserveUniqueName,
+  titleSegment,
+  MAX_FILENAME_BYTES,
 } from '../../lib/filename.js';
 
 const IMAGE_URL = 'https://cdn.example.com/photos/image_1920_x.webp?cache=abc';
@@ -127,6 +129,80 @@ test('photoStem joins owner, folder, number and key', () => {
 test('photoStem leaves out empty parts', () => {
   assert.equal(photoStem({ owner: 'O', folder: '', number: '', key: 'abcd1234' }), 'O_abcd1234');
   assert.equal(photoStem({ owner: 'O', folder: 'Album', number: '03', key: null }), 'O_Album_03');
+});
+
+test('photoStem puts the title before the key', () => {
+  assert.equal(
+    photoStem({ owner: 'O', folder: 'Album', number: '03', title: 'Rück-Ansicht', key: 'abcd1234', extension: 'jpg' }),
+    'O_Album_03_Rück-Ansicht_abcd1234',
+  );
+  assert.equal(photoStem({ owner: 'O', title: 'T', key: 'abcd1234', extension: 'jpg' }), 'O_T_abcd1234');
+});
+
+const bytes = (text) => new TextEncoder().encode(text).length;
+
+test('photoStem cuts a long title first, keeping owner, number, key and extension', () => {
+  const stem = photoStem({ owner: 'O', folder: 'Album', number: '03', title: '😀'.repeat(80), key: 'abcd1234', extension: 'jpg' });
+
+  assert.ok(bytes(`${stem}.jpg`) <= MAX_FILENAME_BYTES);
+  assert.match(stem, /^O_Album_03_(😀)+_abcd1234$/u);
+});
+
+test('photoStem cuts the album after the title, within the byte cap', () => {
+  const stem = photoStem({
+    owner: 'Owner', folder: '写真'.repeat(40), number: '03', title: '題名'.repeat(40), key: 'abcd1234', extension: 'jpeg',
+  });
+
+  assert.ok(bytes(`${stem}.jpeg`) <= MAX_FILENAME_BYTES, `${bytes(stem)} bytes`);
+  assert.match(stem, /^Owner_(写真)+写?_03_abcd1234$/u);
+});
+
+test('photoStem trims a separator left at the end of a cut title', () => {
+  const owner = 'O'.repeat(188);
+  const stem = photoStem({ owner, title: 'abcd-efgh', key: 'k', extension: 'jpg' });
+
+  assert.equal(`${stem}.jpg`.length, MAX_FILENAME_BYTES - 1);
+  assert.equal(stem, `${owner}_abcd_k`);
+});
+
+test('photoStem drops a title cut to nothing, with its separator', () => {
+  const owner = 'O'.repeat(194);
+
+  assert.equal(photoStem({ owner, title: 'abc', key: 'k', extension: 'jpg' }), `${owner}_k`);
+});
+
+test('buildFilename stays within the byte cap for a long album', () => {
+  const name = buildFilename({ owner: 'O', album: '写真'.repeat(40), position: 1, count: 1, photoId: 'k', url: IMAGE_URL });
+
+  assert.ok(bytes(name) <= MAX_FILENAME_BYTES);
+  assert.match(name, /^O_(写真)+写?_01_k\.webp$/u);
+});
+
+test('photoStem leaves a name within the cap unchanged', () => {
+  const title = 'a'.repeat(80);
+  const folder = 'b'.repeat(80);
+
+  assert.equal(photoStem({ owner: 'O', folder, number: '03', title, key: 'k', extension: 'jpg' }), `O_${folder}_03_${title}_k`);
+});
+
+test('titleSegment uses the folder rules', () => {
+  assert.equal(titleSegment('Rück Ansicht'), 'Rück-Ansicht');
+  assert.equal(titleSegment('Mu\u0308nchen'), 'M\u00FCnchen');
+  assert.equal(titleSegment('a<b>c:d"e/f\\g|h?i*j\u0007k\u200Dl. '), 'a_b_c_d_e_f_g_h_i_j_k_l');
+  assert.equal(titleSegment('CON'), 'CON_');
+  assert.equal(titleSegment(null), '');
+});
+
+test('titleSegment keeps #, % and &', () => {
+  assert.equal(titleSegment('#1 100% & mehr'), '#1-100%-&-mehr');
+});
+
+test('titleSegment drops placeholder titles', () => {
+  for (const title of ['...', 'Profilbild', ' ... ']) assert.equal(titleSegment(title), '', title);
+});
+
+test('titleSegment caps at 80 code points', () => {
+  assert.equal(titleSegment('😀'.repeat(81)), '😀'.repeat(80));
 });
 
 test('buildFilename: album photo → <Owner>_<Album>_<nn>_<id>', () => {

@@ -15,6 +15,7 @@ import {
 import {
   IMAGE_BASE, albumRaw, captionsResult, listResult, profileTextResult, sourcesResult, testUuid,
 } from '../fixtures/album-api.js';
+import { filterNewEntries, savedRecord } from '../../lib/incremental.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 import { SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, masterUrlOf, signingUrlOf } from '../fixtures/video-api.js';
 
@@ -112,6 +113,47 @@ describe('toAlbumZipRequest', () => {
       { url: jpgUrl(2), name: `Aktuelles/TestOwner_Aktuelles_01_${keyOf(2)}.jpg`, photoKey: keyOf(2) },
       { url: jpgUrl(3), name: `Sie/TestOwner_Sie_01_${keyOf(3)}.jpg`, photoKey: keyOf(3) },
     ]);
+  });
+
+  test('puts the photo title before the key, sanitised', () => {
+    const captions = captionsResult([
+      { id: '1', title: 'Rück Ansicht' }, { id: '2', title: '#1: 100% & mehr' }, { id: '3', title: 'nul' },
+    ]);
+    const request = toAlbumZipRequest(rawFor({ main: ['1'], albums: [{ title: 'A', ids: ['2', '3'] }], captions }), DATE);
+
+    assert.deepEqual(request.entries.map(({ name }) => name), [
+      `Fotos-von-uns/TestOwner_Fotos-von-uns_01_Rück-Ansicht_${keyOf(1)}.jpg`,
+      `A/TestOwner_A_01_#1_-100%-&-mehr_${keyOf(2)}.jpg`,
+      `A/TestOwner_A_02_nul__${keyOf(3)}.jpg`,
+    ]);
+  });
+
+  test('keeps the name without title for placeholder, missing or failed captions', () => {
+    const captions = captionsResult([{ id: '1', title: '...' }, { id: '2', title: 'Profilbild' }, { id: '3', notFound: true }]);
+    const names = (raw) => toAlbumZipRequest(raw, DATE).entries.map(({ name }) => name);
+    const expected = [1, 2, 3, 4].map((n) => `A/TestOwner_A_0${n}_${keyOf(n)}.jpg`);
+
+    assert.deepEqual(names(rawFor({ albums: [{ title: 'A', ids: ['1', '2', '3', '4'] }], captions })), expected);
+    assert.deepEqual(names(rawFor({ albums: [{ title: 'A', ids: ['1', '2', '3', '4'] }], captions: null })), expected);
+  });
+
+  test('a photo saved before it got a title is not new', () => {
+    const before = toAlbumZipRequest(rawFor({ albums: [{ title: 'A', ids: ['1'] }] }), DATE);
+    const captions = captionsResult([{ id: '1', title: 'Neu' }]);
+    const after = toAlbumZipRequest(rawFor({ albums: [{ title: 'A', ids: ['1', '2'] }], captions }), DATE);
+
+    const { request } = filterNewEntries(after, savedRecord(before.entries, []));
+
+    assert.deepEqual(request.entries.map(({ name }) => name), [`A/TestOwner_A_02_${keyOf(2)}.jpg`]);
+  });
+
+  test('keeps a long titled name within 200 UTF-8 bytes', () => {
+    const captions = captionsResult([{ id: '1', title: '😀'.repeat(80) }]);
+    const request = toAlbumZipRequest(rawFor({ albums: [{ title: '写真'.repeat(40), ids: ['1'] }], captions }), DATE);
+    const fileName = request.entries[0].name.split('/')[1];
+
+    assert.ok(new TextEncoder().encode(fileName).length <= 200);
+    assert.match(fileName, new RegExp(`^TestOwner_(写真)+写?_01_${keyOf(1)}\\.jpg$`, 'u'));
   });
 
   test('names the ZIP <owner>.zip', () => {
@@ -285,8 +327,18 @@ describe('toAlbumZipRequest profile files', () => {
 
     assert.ok(markdown.includes('### Motto\n\nCarpe diem\n\n### About\n\nHallo **ihr**\n'));
     assert.ok(markdown.includes(`### Fotos von uns\n\n- [TestOwner\\_Fotos-von-uns\\_01\\_${keyOf(1)}.jpg](Fotos-von-uns/TestOwner_Fotos-von-uns_01_${keyOf(1)}.jpg)\n`));
-    assert.ok(markdown.includes(`### Aktuelles\n\nNeu im *Herbst*\n\n- [Am See](Aktuelles/TestOwner_Aktuelles_01_${keyOf(2)}.jpg)\n  kalt\n  #see\n`));
+    assert.ok(markdown.includes(`### Aktuelles\n\nNeu im *Herbst*\n\n- [Am See](Aktuelles/TestOwner_Aktuelles_01_Am-See_${keyOf(2)}.jpg)\n  kalt\n  #see\n`));
     assert.ok(!markdown.includes('Lady'));
+  });
+
+  test('links titled photos with #, % and & percent-encoded', () => {
+    const captions = captionsResult([{ id: '102', title: '#1 100% & mehr' }]);
+    const request = toAlbumZipRequest(albumRaw({ captions }), DATE);
+    const encoded = `Aktuelles/TestOwner_Aktuelles_01_%231-100%25-%26-mehr_${keyOf(2)}.jpg`;
+
+    assert.ok(request.entries.some(({ name }) => name === `Aktuelles/TestOwner_Aktuelles_01_#1-100%-&-mehr_${keyOf(2)}.jpg`));
+    assert.ok(report(request, 'profile.md').includes(`](${encoded})`));
+    assert.ok(report(request, 'profile.html').includes(`<a href="${encoded}">`));
   });
 
   test('keeps only string hashtags', () => {
