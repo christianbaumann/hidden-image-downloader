@@ -1381,6 +1381,64 @@ describe('"Save hidden image" context menu', () => {
     assert.equal(result.filename, 'TestOwner_Rück-Ansicht_1001.jpg');
   });
 
+  describe('on an album page', () => {
+    const ALBUM_TAB = { id: 7, url: 'https://www.joyclub.de/profile/fotoalbum/1000001.testowner.html' };
+    const ALBUM_CARD = {
+      pageUrl: ALBUM_TAB.url,
+      owner: 'TestOwner',
+      album: 'Fotos von uns',
+      albumLinks: ['/profile/fotoalbum/1000001.testowner.html#media_id_0_3001_x', '/profile/fotoalbum/1000001.testowner.html#media_id_0_3002_x'],
+      layers: [
+        { backgroundImage: 'none', srcset: '', photoId: null, linkIndex: 1, owner: '' },
+        { backgroundImage: `url("${IMAGE_URL}")`, srcset: '', photoId: null, linkIndex: 1, owner: '' },
+      ],
+    };
+
+    beforeEach(() => {
+      tabMessage = async () => ALBUM_CARD;
+      extracted.fetchPhotoTitle = 'Am See';
+    });
+
+    test('looks the card title up in the captions API by the id in its album link', async () => {
+      const result = await handleMenuClick(MENU_INFO, ALBUM_TAB);
+
+      assert.deepEqual(callsNamed('executeScript').map(({ func, args, target }) => [func.name, args, target]),
+        [['fetchPhotoTitle', ['3002'], { tabId: ALBUM_TAB.id }]]);
+      assert.equal(result.filename, 'TestOwner_Fotos-von-uns_02_Am-See_image.jpg');
+    });
+
+    test('a placeholder caption title keeps the name without title', async () => {
+      extracted.fetchPhotoTitle = '...';
+
+      assert.equal((await handleMenuClick(MENU_INFO, ALBUM_TAB)).filename, 'TestOwner_Fotos-von-uns_02_image.jpg');
+    });
+
+    for (const [name, inject] of Object.entries({
+      'a failed captions call': async () => [{ result: null }],
+      'a failed injection': async () => { throw new Error('Cannot access contents of the page'); },
+    })) {
+      test(`${name} saves without title and logs it`, async () => {
+        executeScript = inject;
+
+        assert.equal((await handleMenuClick(MENU_INFO, ALBUM_TAB)).filename, 'TestOwner_Fotos-von-uns_02_image.jpg');
+
+        download = async () => {
+          throw new Error('Invalid filename');
+        };
+        await handleMenuClick(MENU_INFO, ALBUM_TAB);
+        assert.match(logText(), /title: unavailable\n/);
+      });
+    }
+
+    test('a lightbox title on the page needs no captions call', async () => {
+      const [overlay, image] = ALBUM_CARD.layers;
+      tabMessage = async () => ({ ...ALBUM_CARD, layers: [overlay, { ...image, linkIndex: -1, photoId: '3002', title: 'Rück Ansicht' }] });
+
+      assert.equal((await handleMenuClick(MENU_INFO, ALBUM_TAB)).filename, 'TestOwner_Fotos-von-uns_02_Rück-Ansicht_3002.jpg');
+      assert.equal(callsNamed('executeScript').length, 0);
+    });
+  });
+
   test('falls back to the webp when the jpg probe fails', async () => {
     fetchImpl = async () => ({ ok: false, status: HTTP_NOT_FOUND });
 

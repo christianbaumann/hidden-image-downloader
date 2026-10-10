@@ -3,12 +3,12 @@ import {
   LOCKED_STATUS, PASSWORD_KEY, UNLOCKED_STATUS, UNLOCK_FAILED_KEY, Fsk18UnlockError, agecheckUrl, isJoyclubTab,
   isPromptTab, readFsk18Status, submitFsk18Password,
 } from './lib/fsk18.js';
-import { toHiddenImageCandidates } from './lib/hidden-image.js';
+import { findHiddenImage, toHiddenImageCandidates } from './lib/hidden-image.js';
 import { filterNewEntries, mergeRecord, pendingKey, savedKey, savedRecord } from './lib/incremental.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
 import { LOG_FILENAME, createLog, logDataUrl, renderLog } from './lib/log.js';
 import {
-  NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
+  NothingToDownloadError, fetchPhotoTitle, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
 } from './lib/profile.js';
 import { PHASES, overallPercent, progressBadgeText } from './lib/progress.js';
 import { fetchProfileVideos } from './lib/video.js';
@@ -644,6 +644,17 @@ async function describeHiddenImage(tabId, frameId) {
   }
 }
 
+// Profile and album pages: the photo's title from the captions API, as in the profile ZIP, unless the lightbox shows one.
+// A failed lookup saves without title.
+async function captionTitle(tab, { apiPhotoId, names }, log) {
+  if (names.title || !apiPhotoId || !profileUserId(tab.url)) {
+    return '';
+  }
+  const title = (await extractFromTab(tab.id, fetchPhotoTitle, [apiPhotoId]).catch(() => null)) ?? null;
+  log.add(title === null ? 'title: unavailable' : 'title: from captions');
+  return title ?? '';
+}
+
 export async function handleMenuClick(info, tab) {
   if (info.menuItemId === FULL_MENU_ID) {
     return handleActionClick(tab, { full: true });
@@ -656,7 +667,7 @@ export async function handleMenuClick(info, tab) {
   try {
     log.add('path: context menu', { url: tab.url });
     const raw = await describeHiddenImage(tab.id, info.frameId);
-    return await saveSingleImage(toHiddenImageCandidates(raw), log);
+    return await saveSingleImage(toHiddenImageCandidates(raw, await captionTitle(tab, findHiddenImage(raw), log)), log);
   } catch (error) {
     return reportFailure(tab.id, log, error);
   }

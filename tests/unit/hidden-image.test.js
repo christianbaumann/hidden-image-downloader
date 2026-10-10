@@ -1,9 +1,12 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { albumContext, backgroundImageUrl, colorAlpha, toHiddenImageCandidates, widestSrcsetUrl } from '../../lib/hidden-image.js';
+import {
+  albumContext, backgroundImageUrl, colorAlpha, findHiddenImage, toHiddenImageCandidates, widestSrcsetUrl,
+} from '../../lib/hidden-image.js';
 import { Fsk18LockedError } from '../../lib/fsk18.js';
 import { NoImageUrlError } from '../../lib/lightbox.js';
-import { testUuid } from '../fixtures/album-api.js';
+import { albumRaw, captionsResult, listResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import { toAlbumZipRequest } from '../../lib/profile.js';
 
 const PAGE_URL = 'https://www.joyclub.de/my_joy/feed/friends/';
 const ALBUM_PAGE_URL = 'https://www.joyclub.de/profile/fotoalbum/1000001.testowner.html';
@@ -172,6 +175,33 @@ describe('toHiddenImageCandidates', () => {
     assert.equal(toHiddenImageCandidates(raw)[0].filename, 'TestOwner_Fotos-von-uns_02_Rück-Ansicht_00000002.jpg');
   });
 
+  test('an album card takes the caption title like its ZIP entry', () => {
+    const raw = {
+      pageUrl: ALBUM_PAGE_URL,
+      owner: 'TestOwner',
+      album: 'Fotos von uns',
+      albumLinks: ALBUM_LINKS,
+      layers: [layer({ backgroundImage: `url("${JPG_URL}")`, linkIndex: 1 })],
+    };
+    const [first] = toHiddenImageCandidates(raw, 'Am See');
+    const { entries } = toAlbumZipRequest(albumRaw({
+      list: listResult({ main: ['3001', '3002', '3003'] }),
+      sources: sourcesResult(['3001', '3002', '3003'].map((id, index) => ({ id, uuid: testUuid(index + 1) }))),
+      captions: captionsResult([{ id: '3002', title: 'Am See' }]),
+    }), new Date());
+
+    assert.equal(`Fotos-von-uns/${first.filename}`, entries[1].name);
+    assert.equal(first.filename, 'TestOwner_Fotos-von-uns_02_Am-See_00000002.jpg');
+  });
+
+  test('the lightbox title of the layer wins over the caption title; a placeholder caption title gives none', () => {
+    const image = layer({ backgroundImage: 'url("https://x/a.jpg")', photoId: '1001', owner: 'SlideOwner' });
+
+    assert.equal(toHiddenImageCandidates({ pageUrl: PAGE_URL, layers: [{ ...image, title: 'Rück Ansicht' }] }, 'Am See')[0].filename,
+      'SlideOwner_Rück-Ansicht_1001.jpg');
+    assert.equal(toHiddenImageCandidates({ pageUrl: PAGE_URL, layers: [image] }, '...')[0].filename, 'SlideOwner_1001.jpg');
+  });
+
   test('a backdrop without image hides the photos below it', () => {
     const raw = {
       pageUrl: PAGE_URL,
@@ -244,5 +274,29 @@ describe('toHiddenImageCandidates', () => {
 
   test('no answer throws NoImageUrlError', () => {
     assert.throws(() => toHiddenImageCandidates(null), NoImageUrlError);
+  });
+});
+
+describe('findHiddenImage', () => {
+  const card = { pageUrl: ALBUM_PAGE_URL, owner: 'TestOwner', album: 'Fotos von uns', albumLinks: ALBUM_LINKS };
+
+  test('an album card has no data-photo: its album link gives the captions API id', () => {
+    const image = findHiddenImage({ ...card, layers: [layer({ backgroundImage: `url("${JPG_URL}")`, linkIndex: 1 })] });
+
+    assert.deepEqual(image, {
+      url: JPG_URL,
+      apiPhotoId: '3002',
+      names: { owner: 'TestOwner', title: '', photoId: null, album: 'Fotos von uns', position: 2, count: 3 },
+    });
+  });
+
+  test('a lightbox layer gives its data-photo', () => {
+    const image = findHiddenImage({ ...card, layers: [layer({ backgroundImage: `url("${JPG_URL}")`, photoId: '3003' })] });
+
+    assert.equal(image.apiPhotoId, '3003');
+  });
+
+  test('an image outside album links and without data-photo has no API id', () => {
+    assert.equal(findHiddenImage({ pageUrl: PAGE_URL, layers: [layer({ backgroundImage: `url("${JPG_URL}")` })] }).apiPhotoId, null);
   });
 });

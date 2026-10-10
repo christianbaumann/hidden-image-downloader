@@ -506,13 +506,37 @@ async function saveHiddenImageAt(page, serviceWorker, point, frame = page.mainFr
   }, { menuItemId: MENU_ITEM_ID, frameUrl: frame.url() });
 }
 
-test('the context menu saves the album card below the overlay under its ZIP name', async ({ page, serviceWorker, imageServer }) => {
+// album.html's grid cards 3001 and 3002 as the API lists them; 3002 is titled.
+async function routeAlbumPageApi(page, imageServer, options = {}) {
+  await routeJoyclubApi(page.context(), {
+    list: listResult({ main: ['3001', '3002'] }),
+    sources: sourcesResult([{ id: '3001', uuid: testUuid(1) }, { id: '3002', uuid: testUuid(2) }], imageServer.base),
+    captions: captionsResult([{ id: '3002', title: 'Am See' }]),
+    ...options,
+  });
+}
+
+test('the context menu saves the album card below the overlay under its ZIP name, caption title included', async ({ page, serviceWorker, imageServer }) => {
+  await routeAlbumPageApi(page, imageServer);
+  await serve(page, ALBUM_PAGE_URL, await fixture('album.html', { __IMAGE_BASE__: imageServer.base }));
+
+  const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, 'a.album-link:nth-of-type(2)'));
+
+  expect(result.filename).toBe('TestOwner_Fotos-von-uns_02_Am-See_00000002.jpg');
+  expect(result.url).toBe(`${imageServer.base}/${testUuid(2)}/orig/image_1920_k.jpg`);
+  await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
+    .toBe('complete');
+  expect((await badgeState(serviceWorker)).text).toBe('');
+  expect(await zipEntries(serviceWorker, await clickAction(serviceWorker))).toContain(`Fotos-von-uns/${result.filename}`);
+});
+
+test('a failing captions API still saves the album card, without title', async ({ page, serviceWorker, imageServer }) => {
+  await routeAlbumPageApi(page, imageServer, { graphStatus: HTTP_SERVER_ERROR });
   await serve(page, ALBUM_PAGE_URL, await fixture('album.html', { __IMAGE_BASE__: imageServer.base }));
 
   const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, 'a.album-link:nth-of-type(2)'));
 
   expect(result.filename).toBe('TestOwner_Fotos-von-uns_02_00000002.jpg');
-  expect(result.url).toBe(`${imageServer.base}/${testUuid(2)}/orig/image_1920_k.jpg`);
   await expect.poll(() => downloadState(serviceWorker, result.downloadId), { timeout: DOWNLOAD_TIMEOUT_MS })
     .toBe('complete');
   expect((await badgeState(serviceWorker)).text).toBe('');

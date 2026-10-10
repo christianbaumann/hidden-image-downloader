@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   AlbumApiError,
   ClubMailApiError,
+  fetchPhotoTitle,
   fetchProfileAlbums,
   NothingToDownloadError,
   photoKey,
@@ -1057,5 +1058,70 @@ describe('fetchProfileAlbums', () => {
     const serialised = new Function(`return (${fetchProfileAlbums.toString()})`)();
 
     assert.deepEqual((await run(serialised(USER_ID))).result, EXPECTED);
+  });
+});
+
+describe('fetchPhotoTitle', () => {
+  const PHOTO_ID = '3002';
+  const HTTP_OK = 200;
+  const HTTP_SERVER_ERROR = 500;
+  const originalFetch = globalThis.fetch;
+  const jsonResponse = (body, status = HTTP_OK) => ({ ok: status === HTTP_OK, status, json: async () => body });
+  const tokenAnswer = () => jsonResponse({ content: { access_token: 'test-token' } });
+  const captionsAnswer = (captions) => jsonResponse({ data: { profileAlbum: { image: captions } } });
+  let fetchCalls;
+
+  function answer(token, graph) {
+    globalThis.fetch = async (url, options = {}) => {
+      fetchCalls.push({ url, ...options, body: options.body && JSON.parse(options.body) });
+      return options.body ? graph() : token();
+    };
+  }
+
+  beforeEach(() => {
+    fetchCalls = [];
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('asks the captions API for the one photo with the session token and returns its raw title', async () => {
+    answer(tokenAnswer, () => captionsAnswer(captionsResult([{ id: PHOTO_ID, title: 'Am See' }])));
+
+    assert.equal(await fetchPhotoTitle(PHOTO_ID), 'Am See');
+    assert.equal(fetchCalls[0].credentials, 'include');
+    assert.equal(fetchCalls[1].headers.authorization, 'Bearer test-token');
+    assert.equal(fetchCalls[1].body.operationName, 'getProfileAlbumImageCaptions');
+    assert.deepEqual(fetchCalls[1].body.variables, { idList: [PHOTO_ID] });
+  });
+
+  test('returns a placeholder title as it is', async () => {
+    answer(tokenAnswer, () => captionsAnswer(captionsResult([{ id: PHOTO_ID, title: '...' }])));
+
+    assert.equal(await fetchPhotoTitle(PHOTO_ID), '...');
+  });
+
+  const failures = {
+    'no token': [() => jsonResponse({ content: null }), () => captionsAnswer(captionsResult([{ id: PHOTO_ID, title: 'x' }]))],
+    'token request throws': [() => { throw new TypeError('Failed to fetch'); }, () => captionsAnswer(null)],
+    'GraphQL HTTP 500': [tokenAnswer, () => jsonResponse({}, HTTP_SERVER_ERROR)],
+    'GraphQL errors': [tokenAnswer, () => jsonResponse({ errors: [{ message: 'denied' }], data: null })],
+    'photo not found': [tokenAnswer, () => captionsAnswer(captionsResult([{ id: PHOTO_ID, notFound: true }]))],
+    'another photo only': [tokenAnswer, () => captionsAnswer(captionsResult([{ id: '9999', title: 'x' }]))],
+  };
+  for (const [name, [token, graph]] of Object.entries(failures)) {
+    test(`${name} → null`, async () => {
+      answer(token, graph);
+
+      assert.equal(await fetchPhotoTitle(PHOTO_ID), null);
+    });
+  }
+
+  test('stays self-contained when serialised like executeScript does', async () => {
+    answer(tokenAnswer, () => captionsAnswer(captionsResult([{ id: PHOTO_ID, title: 'Am See' }])));
+    const serialised = new Function(`return (${fetchPhotoTitle.toString()})`)();
+
+    assert.equal(await serialised(PHOTO_ID), 'Am See');
   });
 });
