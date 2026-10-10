@@ -6,6 +6,9 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  MEDIA_PLAYLIST, SIGNED, VIDEO_HOST, dataAnswer, listAnswer, masterPlaylist, segmentBytes, signedAnswer, videoItem,
+} from '../fixtures/video-api.js';
 
 const EXTENSION_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // 1x1 lossless WebP.
@@ -30,6 +33,12 @@ const GRAPH_URL = 'https://apiv2.joyclub.com/graph/';
 const GRAPH_CORS = { 'Access-Control-Allow-Origin': JOYCLUB_ORIGIN };
 const CLUBMAIL_LIST_URL = `${JOYCLUB_ORIGIN}/clubmailv3/get_latest_message_list_of_conversation`;
 const CLUBMAIL_DOWNLOAD_PATH = '/clubmailv3/attachment/download/';
+const VIDEO_LIST_URL = `${JOYCLUB_ORIGIN}/video/lightbox/list`;
+const VIDEO_DATA_URL = `${JOYCLUB_ORIGIN}/video/lightbox/data`;
+const VIDEO_SIGNED_URL = `${JOYCLUB_ORIGIN}/aws/aws_signed_cookies?**`;
+// /<guid>/hls/<id>.m3u8 (master), /<guid>/hls/<variant>.m3u8 (media), /<guid>/hls/seg_<n>.ts
+const VIDEO_PATH = /^\/[0-9a-f-]{36}\/hls\/(?:(\d+)\.m3u8|([^/]+\.m3u8)|(seg_\d+\.ts))$/;
+const HTTP_FORBIDDEN = 403;
 const JOYCLUB_HOST = new URL(JOYCLUB_ORIGIN).hostname;
 const CERT_DAYS = '1';
 
@@ -51,8 +60,10 @@ function imageFor(pathname) {
 // JoyClub's token endpoint, GraphQL API and ClubMail; graphStatus / clubMailStatus other than 200 fail those calls.
 // messages: one page of ClubMail messages. context.route also catches the fetches of the injected fetchers.
 // captions: profileAlbum.image of the captions query; profileText: profileDescription.byUserId (null: none).
+// videos: ids of the profile's videos (video-api fixture); { id, source: false } is one of a locked FSK18 session.
 export async function routeJoyclubApi(context, {
   list, sources, captions = null, profileText = null, graphStatus = HTTP_OK, messages = [], clubMailStatus = HTTP_OK,
+  videos = [],
 }) {
   const graphData = {
     getProfileAlbumList: () => ({ profileAlbum: { listByUserId: list } }),
@@ -63,6 +74,12 @@ export async function routeJoyclubApi(context, {
   await context.route(CLUBMAIL_LIST_URL, (route) => (clubMailStatus === HTTP_OK
     ? route.fulfill({ json: { content: { message_list: messages, page_up_parameter: null } } })
     : route.fulfill({ status: clubMailStatus, body: '' })));
+  const videoIds = videos.map((video) => video.id ?? video);
+  await context.route(VIDEO_LIST_URL, (route) => route.fulfill({ json: listAnswer(videoIds) }));
+  await context.route(VIDEO_DATA_URL, (route) => route.fulfill({
+    json: dataAnswer(videos.map((video) => videoItem(video.id ?? video, { source: video.source ?? true }))),
+  }));
+  await context.route(VIDEO_SIGNED_URL, (route) => route.fulfill({ json: signedAnswer() }));
   await context.route(TOKEN_URL, (route) => route.fulfill({
     json: { status_code: HTTP_OK, content: { access_token: 'e2e-token' }, error: null },
   }));
@@ -85,6 +102,26 @@ export async function routeJoyclubApi(context, {
   });
 }
 
+// The video host's answers: playlists and TS segments, only with the signed query (as CloudFront does).
+function serveVideo(url, response) {
+  const match = VIDEO_PATH.exec(url.pathname);
+  if (!match) {
+    response.writeHead(HTTP_NOT_FOUND).end();
+    return;
+  }
+  if (url.searchParams.get('Signature') !== SIGNED.Signature) {
+    response.writeHead(HTTP_FORBIDDEN).end();
+    return;
+  }
+  const [, masterId, mediaName, segmentName] = match;
+  if (segmentName) {
+    response.writeHead(HTTP_OK, { 'Content-Type': 'video/MP2T' }).end(segmentBytes(segmentName));
+    return;
+  }
+  response.writeHead(HTTP_OK, { 'Content-Type': 'application/vnd.apple.mpegurl' })
+    .end(masterId ? masterPlaylist(masterId) : mediaName && MEDIA_PLAYLIST);
+}
+
 // Self-signed certificate for the JoyClub host, created per run so no key is committed.
 async function selfSignedCert() {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'hid-e2e-cert-'));
@@ -99,9 +136,13 @@ async function selfSignedCert() {
 
 export const test = base.extend({
   // context.route does not reach the offscreen document, so Chrome resolves the JoyClub host to this server.
-  // It serves what the offscreen document fetches from JoyClub: the ClubMail attachments.
+  // It serves what the offscreen document fetches from JoyClub: the ClubMail attachments and the videos.
   joyclubServer: async ({}, use) => {
     const server = https.createServer(await selfSignedCert(), (request, response) => {
+      if (request.headers.host?.startsWith(VIDEO_HOST)) {
+        serveVideo(new URL(request.url, `https://${VIDEO_HOST}`), response);
+        return;
+      }
       if (new URL(request.url, JOYCLUB_ORIGIN).pathname !== CLUBMAIL_DOWNLOAD_PATH) {
         response.writeHead(HTTP_NOT_FOUND).end();
         return;
@@ -121,7 +162,7 @@ export const test = base.extend({
         `--load-extension=${EXTENSION_ROOT}`,
         // The routed JoyClub page loads its image from the local server; skip Chrome's permission prompt for that.
         '--disable-features=LocalNetworkAccessChecks',
-        `--host-resolver-rules=MAP ${JOYCLUB_HOST} 127.0.0.1:${joyclubServer.port}`,
+        `--host-resolver-rules=MAP ${JOYCLUB_HOST} 127.0.0.1:${joyclubServer.port}, MAP ${VIDEO_HOST} 127.0.0.1:${joyclubServer.port}`,
         '--ignore-certificate-errors',
       ],
     });

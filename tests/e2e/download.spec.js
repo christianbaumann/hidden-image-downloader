@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
 import { captionsResult, listResult, profileTextResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
 import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+import { VIDEO_ID_1, VIDEO_ID_2 } from '../fixtures/video-api.js';
 
 const LIGHTBOX_URL = 'https://www.joyclub.de/e2e/lightbox';
 const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
@@ -147,11 +148,11 @@ function hasOffscreenDocument(serviceWorker) {
 }
 
 async function serveProfile(page, imageServer, {
-  secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus,
+  secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus, videos,
 } = {}) {
   const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
   await routeJoyclubApi(page.context(), {
-    list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, graphStatus, messages, clubMailStatus,
+    list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, graphStatus, messages, clubMailStatus, videos,
   });
   await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 }
@@ -197,6 +198,20 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   expect((await badgeState(serviceWorker)).text).toBe('');
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
   expect(await logDownloadIds(serviceWorker)).toEqual([]);
+});
+
+test('remuxes a profile video into Videos/ as mp4 and lists a locked one in skipped.txt', async ({ page, serviceWorker, imageServer }) => {
+  await serveProfile(page, imageServer, { videos: [VIDEO_ID_1, { id: VIDEO_ID_2, source: false }] });
+
+  const result = await clickAction(serviceWorker);
+
+  const videoName = `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`;
+  expect((await zipEntries(serviceWorker, result)).filter((name) => name.startsWith('Videos/'))).toEqual(['Videos/', videoName]);
+  const mp4 = await (await loadZip(serviceWorker, result.downloadId)).file(zipRoot(result) + videoName).async('uint8array');
+  expect(new TextDecoder().decode(mp4.subarray(4, 8))).toBe('ftyp');
+  expect(await zipText(serviceWorker, result, 'skipped.txt'))
+    .toBe('Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nVideos: 1 not available (FSK18 locked)\n');
+  expect((await badgeState(serviceWorker)).text).toBe('');
 });
 
 test('writes profile.md and profile.html whose links open the photos in the ZIP', async ({ page, serviceWorker, imageServer }) => {
@@ -253,7 +268,7 @@ test('shows the ZIP progress on the badge before clearing it', async ({ page, se
 
   await zipEntries(serviceWorker, result);
   const texts = await recordedBadgeTexts(serviceWorker);
-  expect(texts.slice(0, 4)).toEqual(['', '0%', '5%', '10%']);
+  expect(texts.slice(0, 5)).toEqual(['', '0%', '3%', '6%', '10%']);
   expect(texts).toContain('1/2');
   expect(texts.at(-1)).toBe('');
   expect(await badgeState(serviceWorker)).toEqual({ text: '', title: 'Download hidden image' });

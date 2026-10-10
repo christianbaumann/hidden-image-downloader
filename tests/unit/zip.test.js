@@ -1,9 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
+import muxjs from 'mux.js';
 import { FETCH_CONCURRENCY, FETCH_RETRIES, RETRY_BASE_DELAY_MS, buildZip, isRetryable, mapWithLimit } from '../../lib/zip.js';
 import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
 import { ZIP_LOG_NAME } from '../../lib/log.js';
+import {
+  ENCRYPTED_MEDIA_PLAYLIST, MEDIA_PLAYLIST, SEGMENT_NAMES, SIGNED_QUERY, VIDEO_ID_1, masterPlaylist, masterUrlOf,
+  segmentBytes, variantNameOf,
+} from '../fixtures/video-api.js';
 
 const URL_A = 'https://img.example/a.jpg';
 const URL_B = 'https://img.example/b.jpg';
@@ -393,5 +398,124 @@ describe('buildZip log.txt', () => {
     assert.deepEqual(logLines.map(({ step, status }) => `${step} ${status}`), [
       `photo: missing ${HTTP_NOT_FOUND}`, `photo: missing ${HTTP_NOT_FOUND}`,
     ]);
+  });
+});
+
+describe('buildZip videos', () => {
+  const MASTER_URL = masterUrlOf(VIDEO_ID_1);
+  const HLS_DIR = MASTER_URL.slice(0, MASTER_URL.lastIndexOf('/') + 1);
+  const BEST_VARIANT = `${HLS_DIR}${variantNameOf(VIDEO_ID_1, 854)}`;
+  const VIDEO_ENTRY = { url: MASTER_URL, name: `Videos/O_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY } };
+  const signed = (url) => `${url}?${SIGNED_QUERY}`;
+  const textResponse = (text) => okResponse(new TextEncoder().encode(text));
+
+  function videoResponses(media = MEDIA_PLAYLIST) {
+    return {
+      [signed(MASTER_URL)]: textResponse(masterPlaylist(VIDEO_ID_1)),
+      [signed(BEST_VARIANT)]: textResponse(media),
+      ...Object.fromEntries(SEGMENT_NAMES.map((name) => [signed(`${HLS_DIR}${name}`), okResponse(segmentBytes(name))])),
+    };
+  }
+
+  it('fetches the best variant with the signed query, without cookies, and zips one mp4', async () => {
+    const { fetch, calls } = stubFetch(videoResponses());
+
+    const { blob, added, missing, unsupported } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.deepEqual(calls.map(({ url }) => url), [
+      signed(MASTER_URL), signed(BEST_VARIANT), ...SEGMENT_NAMES.map((name) => signed(`${HLS_DIR}${name}`)),
+    ]);
+    assert.ok(calls.every(({ options }) => options.credentials === 'omit'));
+    assert.deepEqual({ added, missing, unsupported }, { added: 1, missing: [], unsupported: [] });
+    const mp4 = await (await readZip(blob)).file(VIDEO_ENTRY.name).async('uint8array');
+    assert.equal(new TextDecoder().decode(mp4.subarray(4, 8)), 'ftyp');
+  });
+
+  it('photos keep their cookies beside a video', async () => {
+    const { fetch, calls } = stubFetch({ ...videoResponses(), [URL_A]: okResponse(BYTES_A) });
+
+    await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.equal(calls.find(({ url }) => url === URL_A).options.credentials, 'include');
+  });
+
+  it('a failing segment makes the video missing, logged without the signed query', async () => {
+    const segment = signed(`${HLS_DIR}${SEGMENT_NAMES[1]}`);
+    const { fetch } = stubFetch({ ...videoResponses(), [URL_A]: okResponse(BYTES_A), [segment]: { ok: false, status: HTTP_FORBIDDEN } });
+
+    const { blob, missing, logLines } = await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch, delay: noDelay });
+
+    assert.deepEqual(missing, [MASTER_URL]);
+    assert.deepEqual({ ...logLines.at(-1), ms: 0 }, {
+      ms: 0, step: 'video: missing', entry: VIDEO_ENTRY.name, status: HTTP_FORBIDDEN, reason: undefined, url: `${HLS_DIR}${SEGMENT_NAMES[1]}`,
+    });
+    const zip = await readZip(blob);
+    assert.equal(zip.file(VIDEO_ENTRY.name), null);
+    assert.equal(await zip.file(MISSING_REPORT_NAME).async('string'), `${MASTER_URL}\n`);
+  });
+
+  it('an encrypted stream is neither zipped nor missing, but listed in skipped.txt', async () => {
+    const { fetch, calls } = stubFetch({ ...videoResponses(ENCRYPTED_MEDIA_PLAYLIST), [URL_A]: okResponse(BYTES_A) });
+
+    const { blob, added, missing, unsupported, logLines } = await buildZip([ENTRIES[0], VIDEO_ENTRY], {
+      JSZip, muxjs, fetch, reports: REPORTS,
+    });
+
+    assert.deepEqual({ added, missing, unsupported }, { added: 1, missing: [], unsupported: [MASTER_URL] });
+    assert.equal(calls.some(({ url }) => url.includes('.ts')), false);
+    assert.equal(logLines.at(-1).step, 'video: unsupported');
+    const zip = await readZip(blob);
+    assert.equal(zip.file(VIDEO_ENTRY.name), null);
+    assert.equal(await zip.file(SKIPPED_REPORT_NAME).async('string'), `${SKIPPED_TEXT}Videos: 1 not supported (encrypted)\n`);
+  });
+
+  it('creates skipped.txt for an encrypted stream when there was none', async () => {
+    const { fetch } = stubFetch({ ...videoResponses(ENCRYPTED_MEDIA_PLAYLIST), [URL_A]: okResponse(BYTES_A) });
+
+    const { blob } = await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.equal(await (await readZip(blob)).file(SKIPPED_REPORT_NAME).async('string'), 'Videos: 1 not supported (encrypted)\n');
+  });
+
+  it('segments that do not remux make the video missing', async () => {
+    const responses = videoResponses();
+    for (const name of SEGMENT_NAMES) responses[signed(`${HLS_DIR}${name}`)] = okResponse([1, 2, 3]);
+    const { fetch } = stubFetch({ ...responses, [URL_A]: okResponse(BYTES_A) });
+
+    const { missing, logLines } = await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.deepEqual(missing, [MASTER_URL]);
+    assert.equal(logLines.at(-1).reason, 'remux failed');
+  });
+
+  it('a media playlist without segments makes the video missing', async () => {
+    const { fetch } = stubFetch({ ...videoResponses('#EXTM3U\n#EXT-X-ENDLIST\n'), [URL_A]: okResponse(BYTES_A) });
+
+    const { missing, logLines } = await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.deepEqual(missing, [MASTER_URL]);
+    assert.equal(logLines.at(-1).reason, 'no segments');
+  });
+
+  it('a mux.js exception makes only that video missing', async () => {
+    const { fetch } = stubFetch({ ...videoResponses(), [URL_A]: okResponse(BYTES_A) });
+    const throwingMuxjs = { mp4: { Transmuxer: class { on() {} push() { throw new Error('corrupt'); } } } };
+
+    const { blob, missing, logLines } = await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs: throwingMuxjs, fetch });
+
+    assert.ok(blob);
+    assert.deepEqual(missing, [MASTER_URL]);
+    assert.equal(logLines.at(-1).reason, 'remux failed');
+  });
+
+  it('a media playlist served as the source is used directly', async () => {
+    const { fetch } = stubFetch({
+      [signed(MASTER_URL)]: textResponse(MEDIA_PLAYLIST),
+      ...Object.fromEntries(SEGMENT_NAMES.map((name) => [signed(`${HLS_DIR}${name}`), okResponse(segmentBytes(name))])),
+    });
+
+    const { added } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.equal(added, 1);
   });
 });

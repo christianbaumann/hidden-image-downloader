@@ -22,7 +22,8 @@
   "host_permissions": [
     "https://www.joyclub.de/*",
     "https://www.joyclub.com/*",
-    "https://image-user.feig-partner.de/*"
+    "https://image-user.feig-partner.de/*",
+    "https://uservideo.joyclub.de/*"
   ],
   "content_scripts": [
     {

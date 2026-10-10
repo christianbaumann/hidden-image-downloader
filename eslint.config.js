@@ -11,6 +11,7 @@ const browserGlobals = {
   location: 'readonly',
   AbortSignal: 'readonly',
   Blob: 'readonly',
+  TextDecoder: 'readonly',
   setTimeout: 'readonly',
   globalThis: 'readonly',
 };
@@ -40,7 +41,7 @@ export default [
   {
     files: ['offscreen.js'],
     languageOptions: {
-      globals: { JSZip: 'readonly' },
+      globals: { JSZip: 'readonly', muxjs: 'readonly' },
     },
   },
   {

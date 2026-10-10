@@ -36,11 +36,12 @@ test('offscreen document exists', () => {
   assert.ok(existsSync(resolve(root, 'offscreen.html')));
 });
 
-test('manifest grants host access to JoyClub and its image host', () => {
+test('manifest grants host access to JoyClub, its image host and its video host', () => {
   assert.deepEqual(manifest.host_permissions, [
     'https://www.joyclub.de/*',
     'https://www.joyclub.com/*',
     'https://image-user.feig-partner.de/*',
+    'https://uservideo.joyclub.de/*',
   ]);
 });
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IMAGE_BASE, albumRaw, listResult, profileTextResult, testUuid } from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
+import { SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, masterUrlOf } from '../fixtures/video-api.js';
 
 const TAB = { id: 7 };
 const PROFILE_USER_ID = '1000001';
@@ -191,6 +192,7 @@ beforeEach(() => {
     extractLightboxData: VALID_DATA,
     fetchProfileAlbums: albumRaw(),
     fetchClubMailImages: { origin: ORIGIN, messages: [] },
+    fetchProfileVideos: { videos: [] },
   };
   executeScript = async ({ func }) => [{ result: extracted[func.name] }];
   zipDownloadIds = [];
@@ -512,16 +514,16 @@ describe('profile ZIP', () => {
     await new Promise(setImmediate);
   });
 
-  test('a profile URL injects the album and ClubMail fetchers, with the user id', async () => {
+  test('a profile URL injects the album, ClubMail and video fetchers, with the user id', async () => {
     await handleActionClick(PROFILE_TAB);
 
     const options = callsNamed('executeScript');
-    assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages']);
+    assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages', 'fetchProfileVideos']);
     assert.ok(options.every(({ target }) => target.tabId === PROFILE_TAB.id));
-    assert.deepEqual(options.map(({ args }) => args), [[PROFILE_USER_ID], [[PROFILE_USER_ID]]]);
+    assert.deepEqual(options.map(({ args }) => args), [[PROFILE_USER_ID], [[PROFILE_USER_ID]], [PROFILE_USER_ID]]);
   });
 
-  test('runs both fetchers in parallel', async () => {
+  test('runs all fetchers in parallel', async () => {
     const started = [];
     let release;
     const gate = new Promise((resolve) => {
@@ -538,7 +540,7 @@ describe('profile ZIP', () => {
 
     await handleActionClick(PROFILE_TAB);
 
-    assert.deepEqual(started, ['fetchProfileAlbums', 'fetchClubMailImages']);
+    assert.deepEqual(started, ['fetchProfileAlbums', 'fetchClubMailImages', 'fetchProfileVideos']);
   });
 
   test('adds the ClubMail attachments to the album ZIP', async () => {
@@ -629,7 +631,7 @@ describe('profile ZIP', () => {
     test(`takes the album path on ${new URL(url).pathname}`, async () => {
       await handleActionClick({ ...PROFILE_TAB, url });
 
-      assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages']);
+      assert.deepEqual(injectedFunctions(), ['fetchProfileAlbums', 'fetchClubMailImages', 'fetchProfileVideos']);
       assert.equal(callsNamed('download')[0].url, BLOB_URL);
     });
   }
@@ -952,12 +954,12 @@ describe('ZIP progress badge', () => {
     };
   }
 
-  test('the API phase shows 0 %, 5 % and then 10 % in blue', async () => {
+  test('the API phase shows 0 %, 3 %, 6 % and then 10 % in blue', async () => {
     await handleActionClick(PROFILE_TAB);
 
-    assert.deepEqual(badgeTextsOf(PROFILE_TAB.id).slice(0, 4), ['', '0%', '5%', '10%']);
+    assert.deepEqual(badgeTextsOf(PROFILE_TAB.id).slice(0, 5), ['', '0%', '3%', '6%', '10%']);
     assert.equal(callsNamed('setBadgeBackgroundColor')[0].color, PROGRESS_COLOR);
-    assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list and ClubMail');
+    assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list, videos and ClubMail');
   });
 
   test('photo progress shows the count and "n of m photos" in blue', async () => {
@@ -1047,7 +1049,7 @@ describe('ZIP progress badge', () => {
 
     assert.equal(lastBadgeText(), '!');
     assert.match(lastTitle(), /JoyClub pages only/);
-    assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('5%'), false);
+    assert.equal(badgeTextsOf(PROFILE_TAB.id).includes('3%'), false);
   });
 
   test('an unexpected error clears the progress badge before it propagates', async () => {
@@ -1206,7 +1208,7 @@ describe('failure log', () => {
     const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
     assert.equal(build.warning, true);
     assert.equal(typeof build.log.startedAt, 'number');
-    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'clubmail: failed', 'files: 2 of 2 new']);
+    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'videos: 0 of 0 with source', 'clubmail: failed', 'files: 2 of 2 new']);
   });
 
   test('build-zip carries no warning when ClubMail was read', async () => {
@@ -1415,6 +1417,24 @@ describe('incremental export', () => {
     await clickAndFinish();
 
     assert.deepEqual(saved(), { photos: ['00000001'], attachments: [] });
+  });
+
+  test('videos are built in the ZIP and recorded, an unsupported one too, so it is not retried', async () => {
+    extracted.fetchProfileVideos = { videos: [VIDEO_ID_1, VIDEO_ID_2].map((id) => ({ id, source: masterUrlOf(id), query: SIGNED_QUERY })) };
+    zipResponse = { url: BLOB_URL, added: 3, missing: [], unsupported: [masterUrlOf(VIDEO_ID_2)] };
+
+    await clickAndFinish();
+
+    const videoEntries = buildRequests()[0].entries.filter(({ videoId }) => videoId);
+    assert.deepEqual(videoEntries.map(({ videoId, hls }) => [videoId, hls.query]), [[VIDEO_ID_1, SIGNED_QUERY], [VIDEO_ID_2, SIGNED_QUERY]]);
+    assert.deepEqual(saved(), { photos: BOTH_PHOTOS, attachments: [], videos: [VIDEO_ID_1, VIDEO_ID_2] });
+  });
+
+  test('a saved video is not zipped again', async () => {
+    extracted.fetchProfileVideos = { videos: [{ id: VIDEO_ID_1, source: masterUrlOf(VIDEO_ID_1), query: SIGNED_QUERY }] };
+    localStorageArea.items()[SAVED_KEY] = { photos: BOTH_PHOTOS, attachments: [], videos: [VIDEO_ID_1] };
+
+    assert.deepEqual(await handleActionClick(PROFILE_TAB), { nothingNew: true });
   });
 
   test('a new message without attachment zips the transcripts only', async () => {

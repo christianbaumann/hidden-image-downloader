@@ -7,6 +7,7 @@ import {
   NothingToDownloadError, fetchProfileAlbums, profileUserId, toAlbumZipRequest, toClubMailZipRequest,
 } from './lib/profile.js';
 import { PHASES, overallPercent, progressBadgeText } from './lib/progress.js';
+import { fetchProfileVideos } from './lib/video.js';
 
 const DEFAULT_ACTION_TITLE = 'Download hidden image';
 const BADGE_TITLE_PREFIX = 'Hidden Image Downloader: ';
@@ -17,7 +18,7 @@ const BADGE_PROGRESS_COLOR = '#1a73e8';
 const BADGE_NEUTRAL_COLOR = '#5f6368';
 const NOTHING_NEW_TEXT = '✓';
 const NOTHING_NEW = 'nothing new';
-const API_PHASE_TITLE = 'loading album list and ClubMail';
+const API_PHASE_TITLE = 'loading album list, videos and ClubMail';
 const CONFLICT_ACTION = 'uniquify';
 const PROBE_TIMEOUT_MS = 5000;
 const OFFSCREEN_URL = 'offscreen.html';
@@ -30,6 +31,7 @@ const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
 const WARNING_SEPARATOR = '; ';
 const INJECTION_FAILED_REASON = 'extension could not run on the page';
 const CLUBMAIL_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
+const VIDEOS_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
 const ZIP_EXTENSION = '.zip';
 const ZIP_WITHOUT_URL_REASON = 'no ZIP in the answer';
 const MENU_ID = 'save-hidden-image';
@@ -277,7 +279,8 @@ async function downloadZip(tabId, userId, {
   try {
     const root = zipName.slice(0, -ZIP_EXTENSION.length);
     response = await buildZipOffscreen(tabId, { root, entries, reports, warning: clubMailFailed }, log);
-    log.add(`zip: ${response.added} added, ${response.missing.length} missing`);
+    const unsupported = response.unsupported?.length ? `, ${response.unsupported.length} unsupported` : '';
+    log.add(`zip: ${response.added} added, ${response.missing.length} missing${unsupported}`);
     downloadId = await startDownload(response.url, zipName);
   } catch (error) {
     activeZipJobs--;
@@ -362,6 +365,14 @@ function logAlbums(log, albums) {
   log.add(albums?.failed ? 'albums: failed' : `albums: ${albums?.sources?.length ?? 0} photo sources`);
 }
 
+function logVideos(log, videos) {
+  if (!Array.isArray(videos?.videos)) {
+    log.add('videos: failed', { reason: videos?.reason });
+    return;
+  }
+  log.add(`videos: ${videos.videos.filter((video) => video.source).length} of ${videos.videos.length} with source`);
+}
+
 function logClubMail(log, clubMail) {
   if (clubMail?.failed || !clubMail?.messages) {
     log.add('clubmail: failed', { reason: clubMail?.reason });
@@ -435,13 +446,15 @@ export async function handleActionClick(tab, { full = false } = {}) {
     const userId = profileUserId(tab.url);
     if (userId) {
       log.add('path: profile', { url: tab.url });
-      const [albums, clubMail] = await extractAllWithProgress(tab.id, [
+      const [albums, clubMail, videos] = await extractAllWithProgress(tab.id, [
         [fetchProfileAlbums, [userId]],
         [fetchClubMailImages, [[userId]], CLUBMAIL_FAILED],
+        [fetchProfileVideos, [userId], VIDEOS_FAILED],
       ]);
       logAlbums(log, albums);
+      logVideos(log, videos);
       logClubMail(log, clubMail);
-      return await downloadNewFiles(tab.id, userId, toAlbumZipRequest(albums, date, clubMail), full, log);
+      return await downloadNewFiles(tab.id, userId, toAlbumZipRequest(albums, date, clubMail, videos), full, log);
     }
     log.add('path: lightbox', { url: tab.url });
     const raw = await extractFromTab(tab.id, extractLightboxData);

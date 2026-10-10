@@ -168,7 +168,7 @@ encrypted / DRM       not downloaded; "Videos: <n> not supported (<format>)" in 
 no source             (locked FSK18 session) "Videos: <n> not available (FSK18 locked)" in skipped.txt
 ```
 
-Follow-up checks done (2026-10-10): a second profile has the same format; a locked FSK18 session gets no playlist URL, so those videos go to `skipped.txt` (no bypass). Still to design: where segments are fetched (tab vs. offscreen with the per-video CloudFront cookies) and where the remux runs.
+Follow-up checks done (2026-10-10): a second profile has the same format; a locked FSK18 session gets no playlist URL, so those videos go to `skipped.txt` (no bypass). Fetch path (task 10, 2026-10-10): the tab (`fetchProfileVideos`, injected) reads the list and sources and asks `/aws/aws_signed_cookies` per video; CloudFront also accepts those values as signed-URL query parameters (verified live), so the offscreen document fetches playlists and segments with the query and without cookies, remuxes with mux.js and zips the mp4. No `cookies` permission, no cookie clobbering between videos; the values expire after ~20 min, so a very long ZIP build can lose late videos to `missing.txt`.
 
 ClubMail video attachments are not affected. They already land in `ClubMail/` as files.
 

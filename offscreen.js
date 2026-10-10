@@ -10,7 +10,7 @@ function sendProgress(jobId) {
 
 // Messages: { target: 'offscreen', action: 'ping' } → { ready: true }
 //           { target: 'offscreen', action: 'build-zip', jobId, root, entries, reports, log, warning }
-//             → { url|null, added, missing, logLines } or { error }
+//             → { url|null, added, missing, unsupported, logLines } or { error }
 // Sends:    { target: 'background', action: 'zip-progress', jobId, done, total }, at most once per whole percent.
 // Other targets: no answer. The blob URL lives until the service worker closes this document.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -24,6 +24,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'build-zip') {
     buildZip(message.entries, {
       JSZip,
+      muxjs,
       fetch: (...args) => fetch(...args),
       reports: message.reports ?? [],
       root: message.root,
@@ -31,8 +32,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       warning: message.warning,
       onProgress: sendProgress(message.jobId),
     })
-      .then(({ blob, added, missing, logLines }) => sendResponse({
-        url: blob ? URL.createObjectURL(blob) : null, added, missing, logLines,
+      .then(({ blob, added, missing, unsupported, logLines }) => sendResponse({
+        url: blob ? URL.createObjectURL(blob) : null, added, missing, unsupported, logLines,
       }))
       .catch((error) => sendResponse({ error: error.message }));
     return true;

@@ -5,6 +5,7 @@ import { filterNewEntries, fingerprint, mergeRecord, pendingKey, savedKey, saved
 const PHOTO_1 = { url: 'https://img/1.jpg', name: 'Album/O_Album_01_00000001.jpg', photoKey: '00000001' };
 const PHOTO_3 = { url: 'https://img/3.jpg', name: 'Album/O_Album_03_00000003.jpg', photoKey: '00000003' };
 const ATTACHMENT = { url: 'https://cm/a1', name: 'ClubMail/O_ClubMail_01_a1.jpg', attachmentId: 'a1' };
+const VIDEO = { url: 'https://v/900001.m3u8', name: 'Videos/O_Videos_01_900001.mp4', videoId: '900001', hls: { query: 'Policy=p' } };
 const KEYLESS = { url: 'https://img/x.jpg', name: 'Album/O_Album_02.jpg' };
 const REPORTS = [{ name: 'skipped.txt', text: 'Lady (9 photos)\n' }];
 const REQUEST = { zipName: 'O.zip', entries: [PHOTO_1, PHOTO_3, ATTACHMENT], reports: REPORTS, lastMessageId: '12' };
@@ -129,4 +130,31 @@ describe('fingerprint', () => {
 test('storage keys', () => {
   assert.equal(savedKey('1000001'), 'saved:1000001');
   assert.equal(pendingKey(43), 'pending:43');
+});
+
+describe('videos', () => {
+  test('a saved video is not new, an unsaved one is', () => {
+    const other = { ...VIDEO, url: 'https://v/900002.m3u8', videoId: '900002' };
+
+    const { request } = filterNewEntries({ entries: [VIDEO, other], reports: [] }, { photos: [], attachments: [], videos: ['900001'] });
+
+    assert.deepEqual(request.entries, [other]);
+  });
+
+  test('a video id never matches a photo key or attachment id', () => {
+    const { request } = filterNewEntries({ entries: [VIDEO], reports: [] }, { photos: ['900001'], attachments: ['900001'] });
+
+    assert.deepEqual(request.entries, [VIDEO]);
+  });
+
+  test('savedRecord keeps added videos and leaves out missing ones', () => {
+    assert.deepEqual(savedRecord([PHOTO_1, VIDEO], []), { photos: ['00000001'], attachments: [], videos: ['900001'] });
+    assert.deepEqual(savedRecord([PHOTO_1, VIDEO], [VIDEO.url]), { photos: ['00000001'], attachments: [] });
+  });
+
+  test('mergeRecord unites the videos and leaves them out while there are none', () => {
+    assert.deepEqual(mergeRecord({ photos: [], attachments: [], videos: ['1'] }, { photos: [], attachments: [], videos: ['1', '2'] }).videos, ['1', '2']);
+    assert.deepEqual(mergeRecord({ photos: [], attachments: [], videos: ['1'] }, { photos: [], attachments: [] }).videos, ['1']);
+    assert.equal('videos' in mergeRecord(undefined, { photos: [], attachments: [] }), false);
+  });
 });
