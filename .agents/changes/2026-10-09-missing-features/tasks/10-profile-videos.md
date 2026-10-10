@@ -6,7 +6,7 @@ dependencies:
 
 # Task 10: Profile videos in Videos/
 
-**Status:** Done (2026-10-10), awaiting the user's QuickTime check and approval. The first QuickTime check failed (no picture); fixed (see "QuickTime fix"). The user's answers below are implemented. Fetch path: the tab gets list, sources and per-video CloudFront values; the offscreen document fetches the stream with them as signed-URL query (no cookies) and remuxes with mux.js (`design.md#j-videos`).
+**Status:** Done, verified live and approved by the user (2026-10-10). Commits `6d10f54`, `9fb9c17`, `ee52247`.
 
 Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP: JoyClub's unencrypted HLS is fetched (highest rendition) and remuxed to mp4; encrypted or unplayable videos are listed in `skipped.txt`.
 
@@ -40,7 +40,8 @@ Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP:
 
 * [x] A fixture profile with one HLS video gives `<Owner>/Videos/<Owner>_Videos_01_<id>.mp4`, a valid mp4
   * **Note:** Verified via E2E "remuxes a profile video…" (entry name, `ftyp`) and the `remuxToMp4` output of the fixture: ffprobe h264 + aac 2.09 s, full ffmpeg decode clean, AVFoundation playable, 1.9 s.
-* [ ] Live: a real profile video in the ZIP plays in QuickTime (manual testing required; first attempt failed, fixed, see "QuickTime fix")
+* [x] Live: a real profile video in the ZIP plays in QuickTime
+  * **Note:** First attempt failed (no picture), fixed (see "QuickTime fix"). User re-downloaded both profiles (2026-10-10): all 30 videos decode to the end with picture and sound in AVFoundation, QuickTime Player opens them with the right duration; approved by the user.
   * **Note:** Automated part done live 2026-10-10 (playwright-cli, extension loaded, user's cookies, profile named by the user): ZIP with 34 photos + 13 videos in 11 s, nothing missing, clean badge; all 13 mp4 h264 + aac at the highest variant (up to 1080×1920); ffmpeg decodes all cleanly; AVFoundation (QuickTime's framework) reports each playable with video and sound track and the right duration (±0.2 s of ffprobe); a second click → "nothing new" (34 photos, 13 videos recorded). Left to the user: open one in QuickTime Player and watch it.
 * [x] An encrypted stream appears in `skipped.txt`, not in the ZIP
   * **Note:** Verified via `tests/unit/zip.test.js` › "an encrypted stream is neither zipped nor missing…" and "creates skipped.txt…". No live stream was encrypted.
