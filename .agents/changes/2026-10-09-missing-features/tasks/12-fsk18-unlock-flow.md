@@ -6,7 +6,7 @@ dependencies:
 
 # Task 12: FSK18 unlock before a download
 
-**Status:** Built and tested against a fake prompt (2026-10-10, in auto mode, with the user's go-ahead: code and automated tests here, live checks deferred). Open: Spike 2's scripted Vue fill and the live verification items, both in a session without auto mode.
+**Status:** Done, verified live and approved (2026-10-10). Built in auto mode with the user's go-ahead (commit `81354c1`); the live checks ran afterwards with fresh cookies of locked sessions, the user typing the password into the options page of the test extension.
 
 JoyClub shows 18+ content only after the user re-enters their login password once per session ("Passwort für FSK18-Zugang", https://support.joyclub.com/hc/de/articles/360020425600). Locked, 18+ photos are pixelated small variants (`…/orig/image_180_pxl_<token>.jpg`) inside links to `/webauth/activate/fsk18/`. A click should check the session first: unlocked → go on; locked → open the unlock prompt for the user, wait until they entered their password, then go on. The extension never sees or handles the password.
 
@@ -50,13 +50,14 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
   * **Note:** Live 2026-10-09 (locked session): `/login/agecheck.html` ends on `identity.joyclub.com/ui/fsk18/challenge/password`, text "Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein". One `form` (method get, no action, Vue/Vuetify): hidden `input[name=username][autocomplete=username]`, password `input.v-field__input[type=password][autocomplete=current-password]` (generated id, no name), `j-button.submit-btn` ("Freischalten"), `j-button.cancel-btn` ("Abbrechen"). Error message for a wrong password: not seen (would cost an attempt against the rate limit).
 * [x] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
   * **Note:** Live 2026-10-09, locked session (`"0"`): the user typed the password, the script clicked `j-button.submit-btn` (`element.click()`). Steps: `/login/agecheck.html` → `identity.joyclub.com/ui/fsk18` → `/ui/fsk18/challenge/password`; after the click `/ui/redirect` → back on the opening page (`/my_joy/feed/friends/`) within ~1 s, status `"1"`. The scripted fill of the Vue field (value + `input` event) is not tested yet. The result was read by the user: Claude Code's auto mode classifier blocks Claude from this test's output ("Auto-Mode Bypass"), so building option C under auto mode is likely blocked too.
-* [ ] Scripted fill of the Vue password field (value + `input` event) followed by the submit is accepted (one attempt, the user's real password from the options page of the test extension) (manual testing required; session without auto mode)
+* [x] Scripted fill of the Vue password field (value + `input` event) followed by the submit is accepted (one attempt, the user's real password from the options page of the test extension)
+  * **Note:** Live 2026-10-10 (fresh cookies of a locked session, the user typed the password into the options page of the test extension; the script never read it): one attempt, accepted; see the first verification item.
   * **Note:** Implemented as `submitFsk18Password` (native `HTMLInputElement` value setter, bubbling `input` event, then `j-button.submit-btn` `click()`). E2E covers it against a fake prompt whose model follows `input` events only (`tests/e2e/fixtures/fsk18-prompt.html`); the real Vuetify field is unverified.
 
 ## Decisions (2026-10-09)
 
 * Build option C (stored password, automatic unlock) in a Claude Code session without auto mode: auto mode's classifier blocks the password submit and its test output. **Update 2026-10-10:** the user allowed building the code and automated tests in auto mode; only the live checks need a session without it.
-* The `Bash(playwright-cli:*)` allow rule in `.claude/settings.local.json` stays until this task is done, then gets removed.
+* The `Bash(playwright-cli:*)` allow rule in `.claude/settings.local.json` stays until this task is done, then gets removed. **Done** (2026-10-10).
 * The live check needs fresh exports of the `www.joyclub.de` and `identity.joyclub.com` cookies from a locked session; the old exports are deleted.
 * Next task after this one: 06. **Note:** 06 was done first (2026-10-09), then 07; 08 is next in order.
 
@@ -80,11 +81,17 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 
 ## Verification
 
-* [ ] Locked session with a stored password: a toolbar ZIP of a profile with 18+ photos holds full-size photos, without any user interaction (manual testing required; session without auto mode)
+* [x] Locked session with a stored password: a toolbar ZIP of a profile with 18+ photos holds full-size photos, without any user interaction
+  * **Note:** Live 2026-10-10, `/profile/fotoalbum/13928162.sexwine69.html`: before the click the page had status `"0"` and 40 `image_*_pxl_` URLs. Click (Playwright, `handleActionClick`): one background prompt tab opened and closed, ZIP `SexWine69.zip` with 47 files, 0 missing, no badge, no log. All 34 photos are full size (769–1920 px wide, JPEG SOF), none 180 px; all 13 videos have a stream (a locked session gets none). The clicked page itself still says `"0"` (not reloaded, as designed). Script: scratchpad `fsk18-live/zip-check.mjs`.
   * **Note:** Automated against the fake prompt: `tests/e2e/download.spec.js` › "a locked session types the stored password into the prompt before the album API" (one submit, every GraphQL call after the unlock, prompt tab closed, clean badge).
-* [ ] Locked session with a stored password: opening a JoyClub page unlocks and reloads it once; the menu then saves full-size photos (manual testing required; session without auto mode)
+* [x] Locked session with a stored password: opening a JoyClub page unlocks and reloads it once; the menu then saves full-size photos
+  * **Note:** Live 2026-10-10, second locked session (status `"0"` checked by request before any page load): opening `/profile/fotoalbum/13928162.sexwine69.html` → first load `"0"`, one background prompt tab opened and closed, the page reloaded once (2 loads in total) and reports `"1"` after 7.7 s, 0 `_pxl_` URLs, no badge. "Save hidden image" on the first album photo (`handleMenuClick` after a `contextmenu` event) → `…/orig/image_1920_8HJkB.jpg`, `SexWine69_Fotos-von-uns_01_aefe8c94.jpg`. Script: scratchpad `fsk18-live/pageload-check.mjs`.
   * **Note:** Automated against the fake prompt: E2E › "a JoyClub page loaded locked is unlocked with the stored password and reloaded"; integration › "two locked pages share one unlock and are both reloaded", "a locked page does nothing without a password, from a subframe, or after a failed unlock".
 * [x] Unlocked session: no unlock tab, the download starts at once **Note:** Verified via E2E › "an unlocked session opens no prompt" and integration › "an unlocked session downloads at once, without a prompt tab".
 * [x] Wrong stored password: one attempt, red badge "18+ unlock failed", log without the password, nothing pixelated saved silently **Note:** Verified via integration › "a wrong password is tried once, then a red badge and a log without the password; no album is loaded" (badge "18+ unlock failed (password not accepted)", one submit, no fetcher, failure flag set; mocked timers) and E2E › "the context menu asks to unlock 18+ first …". JoyClub's real error page for a wrong password is unknown; the 20 s timeout covers it.
 * [x] No stored password: the unlock tab opens for manual entry **Note:** Verified via integration › "without a stored password the prompt opens in front for the user" (`active: true`, no submit, ZIP after the user's unlock).
 * [x] `npm test` and `npm run test:e2e` pass **Note:** 679 unit/integration tests, 28 E2E tests (2026-10-10, after the review fixes).
+
+**Approved** after live verification (2026-10-10): every work and verification item passed; no manual step left.
+
+Side finding (not part of this task): on an album page the context menu names the main album after its `h2.profile-headline` (`Fotos-von-uns`), while the profile ZIP names the same folder `Hauptalbum` (no album card there, see `CLAUDE.md`), so the same photo gets two names.
