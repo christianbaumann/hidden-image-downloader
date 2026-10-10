@@ -41,6 +41,14 @@ const VIDEO_PATH = /^\/[0-9a-f-]{36}\/hls\/(?:(\d+)\.m3u8|([^/]+\.m3u8)|(seg_\d+
 const HTTP_FORBIDDEN = 403;
 const JOYCLUB_HOST = new URL(JOYCLUB_ORIGIN).hostname;
 const CERT_DAYS = '1';
+const PROMPT_HOST = 'identity.joyclub.com';
+const AGECHECK_PATH = '/login/agecheck.html';
+const PROMPT_PATH = '/ui/fsk18/challenge/password';
+const PROMPT_SUBMIT_PATH = '/ui/fsk18/submit';
+export const UNLOCKED_PATH = '/e2e/unlocked';
+export const FSK18_PASSWORD = 'e2e-fsk18-password';
+const HTTP_FOUND = 302;
+const HTML_TYPE = 'text/html; charset=utf-8';
 
 // The extension probes 127.0.0.1 without host permission, so every answer needs credentialed CORS headers.
 function corsHeaders(request) {
@@ -122,6 +130,32 @@ function serveVideo(url, response) {
     .end(masterId ? masterPlaylist(masterId) : mediaName && MEDIA_PLAYLIST);
 }
 
+// A JoyClub page carrying the session's FSK18 status.
+export function fsk18StatusPage(session) {
+  return `<!doctype html><body data-session-fsk18-status="${session.unlocked ? 1 : 0}">FSK18</body>`;
+}
+
+// JoyClub's FSK18 prompt: agecheck → password form → back on JoyClub, unlocked only with FSK18_PASSWORD.
+// Answered true when the request was one of them.
+async function serveFsk18(url, response, session) {
+  if (url.pathname === AGECHECK_PATH) {
+    response.writeHead(HTTP_FOUND, { Location: `https://${PROMPT_HOST}${PROMPT_PATH}` }).end();
+  } else if (url.hostname === PROMPT_HOST && url.pathname === PROMPT_PATH) {
+    const html = await readFile(new URL('./fixtures/fsk18-prompt.html', import.meta.url));
+    response.writeHead(HTTP_OK, { 'Content-Type': HTML_TYPE }).end(html);
+  } else if (url.hostname === PROMPT_HOST && url.pathname === PROMPT_SUBMIT_PATH) {
+    session.submits++;
+    session.unlocked = url.searchParams.get('password') === FSK18_PASSWORD;
+    const location = session.unlocked ? `${JOYCLUB_ORIGIN}${UNLOCKED_PATH}` : `https://${PROMPT_HOST}${PROMPT_PATH}`;
+    response.writeHead(HTTP_FOUND, { Location: location }).end();
+  } else if (url.pathname === UNLOCKED_PATH) {
+    response.writeHead(HTTP_OK, { 'Content-Type': HTML_TYPE }).end(fsk18StatusPage(session));
+  } else {
+    return false;
+  }
+  return true;
+}
+
 // Self-signed certificate for the JoyClub host, created per run so no key is committed.
 async function selfSignedCert() {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'hid-e2e-cert-'));
@@ -137,8 +171,14 @@ async function selfSignedCert() {
 export const test = base.extend({
   // context.route does not reach the offscreen document, so Chrome resolves the JoyClub host to this server.
   // It serves what the offscreen document fetches from JoyClub: the ClubMail attachments and the videos.
+  // It also serves the FSK18 prompt: context.route misses the first loads of a tab the extension opens.
   joyclubServer: async ({}, use) => {
-    const server = https.createServer(await selfSignedCert(), (request, response) => {
+    const fsk18 = { unlocked: false, submits: 0 };
+    const server = https.createServer(await selfSignedCert(), async (request, response) => {
+      const host = request.headers.host?.split(':')[0];
+      if (await serveFsk18(new URL(request.url, `https://${host}`), response, fsk18)) {
+        return;
+      }
       if (request.headers.host?.startsWith(VIDEO_HOST)) {
         serveVideo(new URL(request.url, `https://${VIDEO_HOST}`), response);
         return;
@@ -150,7 +190,7 @@ export const test = base.extend({
       response.writeHead(HTTP_OK, { 'Content-Type': JPEG.type }).end(JPEG.bytes);
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    await use({ port: server.address().port });
+    await use({ port: server.address().port, fsk18 });
     await new Promise((resolve) => server.close(resolve));
   },
   context: async ({ joyclubServer }, use) => {
@@ -162,7 +202,7 @@ export const test = base.extend({
         `--load-extension=${EXTENSION_ROOT}`,
         // The routed JoyClub page loads its image from the local server; skip Chrome's permission prompt for that.
         '--disable-features=LocalNetworkAccessChecks',
-        `--host-resolver-rules=MAP ${JOYCLUB_HOST} 127.0.0.1:${joyclubServer.port}, MAP ${VIDEO_HOST} 127.0.0.1:${joyclubServer.port}`,
+        `--host-resolver-rules=MAP ${JOYCLUB_HOST} 127.0.0.1:${joyclubServer.port}, MAP ${VIDEO_HOST} 127.0.0.1:${joyclubServer.port}, MAP ${PROMPT_HOST} 127.0.0.1:${joyclubServer.port}`,
         '--ignore-certificate-errors',
       ],
     });

@@ -33,6 +33,13 @@ const OFFSCREEN_READY_LIMIT = 50;
 const PROGRESS_COLOR = '#1a73e8';
 const WARNING_COLOR = '#e0a000';
 
+const UNLOCK_TAB_ID = 70;
+const PASSWORD = 'e2e-secret-password';
+const PROMPT_URL = 'https://identity.joyclub.com/ui/fsk18/challenge/password';
+const UNLOCKED_URL = 'https://www.joyclub.de/my_joy/feed/friends/';
+const UNLOCK_POLL_MS = 250;
+const UNLOCK_STEP_TIMEOUT_MS = 20000;
+
 const MENU_INFO = { menuItemId: 'save-hidden-image', frameId: 0 };
 const MENU_TAB = { id: 7, url: 'https://www.joyclub.de/my_joy/feed/friends/' };
 const HIDDEN_IMAGE = {
@@ -66,6 +73,11 @@ let offscreenCreating;
 let createDocument;
 let closeDocument;
 let tabMessage;
+// tab id → body[data-session-fsk18-status]; readFsk18Status answers undefined for tabs without one.
+let fsk18Statuses;
+// The prompt tab as chrome.tabs.get reports it; null: closed.
+let unlockTab;
+let submitPassword;
 
 // chrome.storage area; values are cloned like Chrome serialises them.
 function storageArea() {
@@ -138,10 +150,34 @@ globalThis.chrome = {
       calls.push(['tabs.sendMessage', { tabId, message, options }]);
       return tabMessage(tabId, message, options);
     },
+    create: async (options) => {
+      calls.push(['tabs.create', options]);
+      return { id: UNLOCK_TAB_ID, url: options.url, status: 'loading' };
+    },
+    get: async (tabId) => {
+      if (tabId !== UNLOCK_TAB_ID || !unlockTab) {
+        throw new Error(`No tab with id: ${tabId}.`);
+      }
+      return unlockTab;
+    },
+    remove: async (tabId) => {
+      calls.push(['tabs.remove', tabId]);
+    },
+    reload: async (tabId) => {
+      calls.push(['tabs.reload', tabId]);
+    },
   },
   storage: { local: localStorageArea, session: sessionStorageArea },
   scripting: {
+    // The FSK18 functions are answered here, so tests replacing executeScript only deal with the fetchers.
     executeScript: async (options) => {
+      if (options.func.name === 'readFsk18Status') {
+        return [{ result: fsk18Statuses.get(options.target.tabId) }];
+      }
+      if (options.func.name === 'submitFsk18Password') {
+        calls.push(['submitPassword', options]);
+        return submitPassword(options);
+      }
       calls.push(['executeScript', options]);
       return executeScript(options);
     },
@@ -217,6 +253,16 @@ beforeEach(() => {
   createDocument = async () => {};
   closeDocument = async () => {};
   tabMessage = async () => HIDDEN_IMAGE;
+  fsk18Statuses = new Map();
+  unlockTab = { id: UNLOCK_TAB_ID, url: PROMPT_URL, status: 'complete' };
+  // The right password brings the prompt tab back to JoyClub, unlocked.
+  submitPassword = async ({ args: [password] }) => {
+    if (password === PASSWORD) {
+      unlockTab = { ...unlockTab, url: UNLOCKED_URL };
+      fsk18Statuses.set(UNLOCK_TAB_ID, '1');
+    }
+    return [{ result: true }];
+  };
   localStorageArea.clear();
   sessionStorageArea.clear();
   mock.method(console, 'warn', () => {});
@@ -1230,7 +1276,7 @@ describe('failure log', () => {
     const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
     assert.equal(build.warning, true);
     assert.equal(typeof build.log.startedAt, 'number');
-    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'albums: 2 photo sources', 'videos: 0 of 0 with source', 'clubmail: failed', 'files: 2 of 2 new']);
+    assert.deepEqual(build.log.lines.map(({ step }) => step), ['path: profile', 'fsk18: status unknown', 'albums: 2 photo sources', 'videos: 0 of 0 with source', 'clubmail: failed', 'files: 2 of 2 new']);
   });
 
   test('build-zip carries no warning when ClubMail was read', async () => {
@@ -1573,5 +1619,232 @@ describe('incremental export', () => {
     assert.deepEqual(createdMenus.find(({ id }) => id === 'download-everything-again'), {
       id: 'download-everything-again', title: 'Download everything again', contexts: ['action'],
     });
+  });
+});
+
+describe('FSK18 unlock', () => {
+  const LOCKED_PAGE = { action: 'fsk18-status', status: '0' };
+  const UNLOCKED_PAGE = { action: 'fsk18-status', status: '1' };
+  const OTHER_TAB_ID = 9;
+  const FLUSH_ROUNDS = 20;
+  const flush = async () => {
+    for (let round = 0; round < FLUSH_ROUNDS; round++) {
+      await new Promise(setImmediate);
+    }
+  };
+  const storePassword = () => localStorageArea.set({ fsk18Password: PASSWORD });
+  const firePageLocked = (sender) => messageListeners.forEach((listener) => listener(LOCKED_PAGE, sender));
+  const firePageUnlocked = (sender) => messageListeners.forEach((listener) => listener(UNLOCKED_PAGE, sender));
+  // Everything but the prompt's own injection: badges, downloads (the log), messages, storage writes.
+  const everythingSent = () => JSON.stringify([calls.filter(([name]) => name !== 'submitPassword'), sessionStorageArea.items()]);
+
+  afterEach(async () => {
+    mock.timers.reset();
+    // The reloaded pages come back unlocked.
+    [MENU_TAB.id, OTHER_TAB_ID, PROFILE_TAB.id].forEach((id) => firePageUnlocked({ tab: { ...MENU_TAB, id }, frameId: 0 }));
+    zipDownloadIds.forEach((id) => fireDownloadChanged(id, 'complete'));
+    await flush();
+  });
+
+  test('an unlocked session downloads at once, without a prompt tab', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '1');
+    await storePassword();
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(callsNamed('tabs.create').length, 0);
+    assert.equal(contentDownloads()[0].url, BLOB_URL);
+  });
+
+  test('a locked session types the stored password into a background prompt, then loads the albums', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await storePassword();
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.deepEqual(callsNamed('tabs.create'), [{ url: 'https://www.joyclub.de/login/agecheck.html', active: false }]);
+    assert.deepEqual(callsNamed('submitPassword').map(({ target, args }) => [target.tabId, args]), [[UNLOCK_TAB_ID, [PASSWORD]]]);
+    assert.deepEqual(callsNamed('tabs.remove'), [UNLOCK_TAB_ID]);
+    const order = calls.map(([name]) => name);
+    assert.ok(order.indexOf('tabs.remove') < order.indexOf('executeScript'));
+    assert.equal(contentDownloads()[0].url, BLOB_URL);
+    const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
+    assert.deepEqual(build.log.lines.map(({ step }) => step).slice(0, 4), ['path: profile', 'fsk18: status 0', 'fsk18: unlocking', 'fsk18: unlocked']);
+    assert.equal(JSON.stringify(build).includes(PASSWORD), false);
+  });
+
+  test('without a stored password the prompt opens in front for the user', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    // The user types the password while the extension waits.
+    let checks = 0;
+    mock.method(chrome.tabs, 'get', async () => {
+      checks++;
+      if (checks > 1) {
+        fsk18Statuses.set(UNLOCK_TAB_ID, '1');
+        return { ...unlockTab, url: UNLOCKED_URL };
+      }
+      return unlockTab;
+    });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+
+    const click = handleActionClick(PROFILE_TAB);
+    await flush();
+    mock.timers.tick(UNLOCK_POLL_MS);
+    await click;
+
+    assert.deepEqual(callsNamed('tabs.create'), [{ url: 'https://www.joyclub.de/login/agecheck.html', active: true }]);
+    assert.equal(callsNamed('submitPassword').length, 0);
+    assert.equal(contentDownloads()[0].url, BLOB_URL);
+  });
+
+  test('a wrong password is tried once, then a red badge and a log without the password; no album is loaded', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await localStorageArea.set({ fsk18Password: 'wrong-password' });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+
+    let result = 'pending';
+    const click = handleActionClick(PROFILE_TAB).then((value) => {
+      result = value;
+    });
+    for (let waited = 0; result === 'pending' && waited <= UNLOCK_STEP_TIMEOUT_MS; waited += UNLOCK_POLL_MS) {
+      await flush();
+      mock.timers.tick(UNLOCK_POLL_MS);
+    }
+    await click;
+
+    assert.equal(result, null);
+    assert.equal(callsNamed('submitPassword').length, 1);
+    assert.equal(callsNamed('executeScript').length, 0);
+    assert.equal(contentDownloads().length, 0);
+    assert.equal(lastBadgeText(), '!');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 18+ unlock failed (password not accepted)');
+    assert.deepEqual(callsNamed('tabs.remove'), [UNLOCK_TAB_ID]);
+    assert.match(logText(), /error: Fsk18UnlockError/);
+    assert.equal(everythingSent().includes('wrong-password'), false);
+    assert.deepEqual(sessionStorageArea.items(), { fsk18UnlockFailed: true });
+  });
+
+  test('a closed prompt fails the click', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await storePassword();
+    unlockTab = null;
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 18+ unlock failed (prompt closed)');
+    assert.equal(callsNamed('submitPassword').length, 0);
+  });
+
+  test('a prompt without password field fails without retry', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await storePassword();
+    submitPassword = async () => [{ result: false }];
+
+    assert.equal(await handleActionClick(PROFILE_TAB), null);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 18+ unlock failed (no password field)');
+    assert.equal(callsNamed('submitPassword').length, 1);
+  });
+
+  test('a locked page with a stored password is unlocked and reloaded', async () => {
+    await storePassword();
+
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+
+    assert.equal(callsNamed('tabs.create')[0].active, false);
+    assert.deepEqual(callsNamed('tabs.reload'), [MENU_TAB.id]);
+  });
+
+  test('two locked pages share one unlock and are both reloaded', async () => {
+    await storePassword();
+
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    firePageLocked({ tab: { ...MENU_TAB, id: OTHER_TAB_ID }, frameId: 0 });
+    await flush();
+
+    assert.equal(callsNamed('tabs.create').length, 1);
+    assert.deepEqual(callsNamed('tabs.reload').sort(), [MENU_TAB.id, OTHER_TAB_ID]);
+  });
+
+  test('a locked page does nothing without a password, from a subframe, or after a failed unlock', async () => {
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await storePassword();
+    firePageLocked({ tab: MENU_TAB, frameId: 3 });
+    await sessionStorageArea.set({ fsk18UnlockFailed: true });
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+
+    assert.equal(callsNamed('tabs.create').length, 0);
+    assert.equal(callsNamed('tabs.reload').length, 0);
+  });
+
+  test('a failed unlock of a locked page shows the red badge and does not reload', async () => {
+    await storePassword();
+    submitPassword = async () => [{ result: false }];
+
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 18+ unlock failed (no password field)');
+    assert.equal(callsNamed('tabs.reload').length, 0);
+    assert.equal(logDownloads().length, 0);
+    assert.equal(everythingSent().includes(PASSWORD), false);
+  });
+
+  test('a session unlocked elsewhere is taken as unlocked without typing the password', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await storePassword();
+    unlockTab = { ...unlockTab, url: UNLOCKED_URL };
+    fsk18Statuses.set(UNLOCK_TAB_ID, '1');
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(callsNamed('submitPassword').length, 0);
+    assert.deepEqual(callsNamed('tabs.remove'), [UNLOCK_TAB_ID]);
+    assert.equal(contentDownloads()[0].url, BLOB_URL);
+  });
+
+  test('a reloaded page that reports locked again starts no second unlock, until it was unlocked once', async () => {
+    await storePassword();
+
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+
+    assert.equal(callsNamed('tabs.create').length, 1);
+    assert.deepEqual(callsNamed('tabs.reload'), [MENU_TAB.id]);
+
+    firePageUnlocked({ tab: MENU_TAB, frameId: 0 });
+    firePageLocked({ tab: MENU_TAB, frameId: 0 });
+    await flush();
+
+    assert.equal(callsNamed('tabs.create').length, 2);
+  });
+
+  test('a page-load unlock does not reload a tab a toolbar click reads from', async () => {
+    fsk18Statuses.set(PROFILE_TAB.id, '0');
+    await storePassword();
+
+    firePageLocked({ tab: PROFILE_TAB, frameId: 0 });
+    await handleActionClick(PROFILE_TAB);
+    await flush();
+
+    assert.equal(callsNamed('tabs.create').length, 1);
+    assert.equal(callsNamed('tabs.reload').length, 0);
+    assert.equal(contentDownloads()[0].url, BLOB_URL);
+  });
+
+  test('the context menu on a gated photo asks to unlock first instead of saving it pixelated', async () => {
+    tabMessage = async () => ({
+      ...HIDDEN_IMAGE,
+      layers: [{ ...HIDDEN_IMAGE.layers[1], gated: true }],
+    });
+
+    assert.equal(await handleMenuClick(MENU_INFO, MENU_TAB), null);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: unlock 18+ first');
+    assert.equal(contentDownloads().length, 0);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { albumContext, backgroundImageUrl, colorAlpha, toHiddenImageCandidates, widestSrcsetUrl } from '../../lib/hidden-image.js';
+import { Fsk18LockedError } from '../../lib/fsk18.js';
 import { NoImageUrlError } from '../../lib/lightbox.js';
 import { testUuid } from '../fixtures/album-api.js';
 
@@ -194,11 +195,11 @@ describe('toHiddenImageCandidates', () => {
     assert.equal(toHiddenImageCandidates(raw)[0].filename, 'CardUser_00000002.jpg');
   });
 
-  test('a gated layer keeps the served size', () => {
-    const crop = `https://image-user.feig-partner.de/${UUID}/orig/image_180_k.jpg`;
+  test('a gated layer throws Fsk18LockedError instead of saving the pixelated photo', () => {
+    const crop = `https://image-user.feig-partner.de/${UUID}/orig/image_180_pxl_k.jpg`;
     const raw = { pageUrl: PAGE_URL, owner: 'TestOwner', layers: [layer({ srcset: `${crop} 180w`, gated: true })] };
 
-    assert.deepEqual(toHiddenImageCandidates(raw).map(({ url }) => url), [crop]);
+    assert.throws(() => toHiddenImageCandidates(raw), Fsk18LockedError);
   });
 
   test('an ungated small image offers the full size first', () => {

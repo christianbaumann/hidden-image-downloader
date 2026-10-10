@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Hidden Image Downloader options</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 16px; max-width: 520px; }
+    label { display: block; margin-bottom: 8px; }
+    input { width: 100%; box-sizing: border-box; }
+    .risk { color: #a50e0e; }
+  </style>
+</head>
+<body>
+  <h1>18+ content</h1>
+  <p>JoyClub shows 18+ photos only after you enter your password once per session. With your password stored here,
+    the extension enters it in JoyClub's prompt for you: before a profile download and when a JoyClub page loads locked.
+    A wrong password is tried once only.</p>
+  <p class="risk"><strong>Risk:</strong> the password is stored unencrypted in your Chrome profile. Anyone who can read
+    that profile on disk can read it. The extension types it only into JoyClub's 18+ prompt and never logs it.</p>
+  <form id="password-form">
+    <label>JoyClub password <input id="password" type="password" autocomplete="off" required></label>
+    <button type="submit">Save password</button>
+    <button id="forget" type="button">Forget password</button>
+  </form>
+  <p id="status" role="status"></p>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

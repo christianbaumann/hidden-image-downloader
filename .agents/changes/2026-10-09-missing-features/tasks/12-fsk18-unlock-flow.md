@@ -6,7 +6,7 @@ dependencies:
 
 # Task 12: FSK18 unlock before a download
 
-**Status:** In progress, paused. Spikes done except the scripted fill of the Vue password field; design and decisions recorded below. Build only in a session without auto mode (see Decisions). Task 06 already added the `storage` permission.
+**Status:** Built and tested against a fake prompt (2026-10-10, in auto mode, with the user's go-ahead: code and automated tests here, live checks deferred). Open: Spike 2's scripted Vue fill and the live verification items, both in a session without auto mode.
 
 JoyClub shows 18+ content only after the user re-enters their login password once per session ("Passwort für FSK18-Zugang", https://support.joyclub.com/hc/de/articles/360020425600). Locked, 18+ photos are pixelated small variants (`…/orig/image_180_pxl_<token>.jpg`) inside links to `/webauth/activate/fsk18/`. A click should check the session first: unlocked → go on; locked → open the unlock prompt for the user, wait until they entered their password, then go on. The extension never sees or handles the password.
 
@@ -50,29 +50,41 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
   * **Note:** Live 2026-10-09 (locked session): `/login/agecheck.html` ends on `identity.joyclub.com/ui/fsk18/challenge/password`, text "Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein". One `form` (method get, no action, Vue/Vuetify): hidden `input[name=username][autocomplete=username]`, password `input.v-field__input[type=password][autocomplete=current-password]` (generated id, no name), `j-button.submit-btn` ("Freischalten"), `j-button.cancel-btn` ("Abbrechen"). Error message for a wrong password: not seen (would cost an attempt against the rate limit).
 * [x] Scripted fill + submit is accepted (one attempt, the user's real password from the options page of the test extension)
   * **Note:** Live 2026-10-09, locked session (`"0"`): the user typed the password, the script clicked `j-button.submit-btn` (`element.click()`). Steps: `/login/agecheck.html` → `identity.joyclub.com/ui/fsk18` → `/ui/fsk18/challenge/password`; after the click `/ui/redirect` → back on the opening page (`/my_joy/feed/friends/`) within ~1 s, status `"1"`. The scripted fill of the Vue field (value + `input` event) is not tested yet. The result was read by the user: Claude Code's auto mode classifier blocks Claude from this test's output ("Auto-Mode Bypass"), so building option C under auto mode is likely blocked too.
-* [ ] Scripted fill of the Vue password field (value + `input` event) followed by the submit is accepted (one attempt, the user's real password from the options page of the test extension)
+* [ ] Scripted fill of the Vue password field (value + `input` event) followed by the submit is accepted (one attempt, the user's real password from the options page of the test extension) (manual testing required; session without auto mode)
+  * **Note:** Implemented as `submitFsk18Password` (native `HTMLInputElement` value setter, bubbling `input` event, then `j-button.submit-btn` `click()`). E2E covers it against a fake prompt whose model follows `input` events only (`tests/e2e/fixtures/fsk18-prompt.html`); the real Vuetify field is unverified.
 
 ## Decisions (2026-10-09)
 
-* Build option C (stored password, automatic unlock) in a Claude Code session without auto mode: auto mode's classifier blocks the password submit and its test output.
+* Build option C (stored password, automatic unlock) in a Claude Code session without auto mode: auto mode's classifier blocks the password submit and its test output. **Update 2026-10-10:** the user allowed building the code and automated tests in auto mode; only the live checks need a session without it.
 * The `Bash(playwright-cli:*)` allow rule in `.claude/settings.local.json` stays until this task is done, then gets removed.
 * The live check needs fresh exports of the `www.joyclub.de` and `identity.joyclub.com` cookies from a locked session; the old exports are deleted.
 * Next task after this one: 06. **Note:** 06 was done first (2026-10-09), then 07; 08 is next in order.
 
 ## Work
 
-* [ ] Options page: store / forget the password (`chrome.storage.local`), with the risk note
-* [ ] `manifest.json`: `storage` permission (already there since task 06), host permission `https://identity.joyclub.com/*`, `options_ui`
-* [ ] Lock check and unlock flow in `background.js` (pure parts in `lib/`), one attempt, timeout, red badge + log on failure; no password in logs
-* [ ] Toolbar ZIP unlocks before the album API; menu click on a gated layer without password → "unlock 18+ first"; proactive unlock + reload for locked JoyClub pages
-* [ ] Unit, integration and E2E tests (E2E: routed fake prompt page and fsk18 status)
-* [ ] README and `CLAUDE.md` describe the flow and the stored password
+* [x] Options page: store / forget the password (`chrome.storage.local`), with the risk note (`options.html`, `options.js`; saving also clears the session's failure flag)
+* [x] `manifest.json`: `storage` permission (already there since task 06), host permission `https://identity.joyclub.com/*`, `options_ui`
+* [x] Lock check and unlock flow in `background.js` (pure parts in `lib/fsk18.js`), one attempt, timeout, red badge + log on failure; no password in logs
+* [x] Toolbar ZIP unlocks before the album API; menu click on a gated layer → "unlock 18+ first"; proactive unlock + reload for locked JoyClub pages (`content.js` reports status `"0"` from the top frame)
+* [x] Unit, integration and E2E tests (E2E: fake prompt served by `joyclubServer`, fsk18 status)
+* [x] README and `CLAUDE.md` describe the flow and the stored password
+
+### Implementation notes
+
+* The unlock succeeds when the prompt tab is back on any JoyClub page with status `"1"`: opened by `tabs.create`, JoyClub may not return to the opening page, so the URL is not checked.
+* Deviation: a menu click on a gated layer gets "unlock 18+ first" with or without a stored password (a gated layer means the page was loaded locked; the proactive unlock reloads such pages). Task 11's "keep the served size" for gated photos is gone.
+* After a failed unlock `fsk18UnlockFailed` (`storage.session`) stops further unlocks on page loads until Chrome restarts or a password is saved again, so a wrong password costs one attempt per browser session there. Toolbar clicks still try once each (one attempt per click, as designed).
+* The lightbox and ClubMail toolbar paths do not check the lock (design: toolbar ZIP only).
+* Review (subagent, 2026-10-10) fixes, each with an integration test: a stale `"0"` on a tab unlocked elsewhere is taken as unlocked when the prompt tab lands on JoyClub with `"1"` (no submit); a reloaded tab starts no second page-load unlock until it reports unlocked (no reload loop); a page-load unlock does not reload a tab a toolbar click reads from; a failed page-load unlock shows the badge only, without a log download; `content.js` catches a synchronous `sendMessage` throw after an extension reload. Not changed: a second wrong submit by two simultaneous page loads. The second tab reads the failure flag before the first tab's write ends, and it joins the still-running unlock in the same continuation.
+* E2E: `context.route` misses the first loads of a tab the extension opens, so the fake agecheck, prompt and submit run on the `joyclubServer` HTTPS fixture (`identity.joyclub.com` mapped via `--host-resolver-rules`).
 
 ## Verification
 
-* [ ] Locked session with a stored password: a toolbar ZIP of a profile with 18+ photos holds full-size photos, without any user interaction
-* [ ] Locked session with a stored password: opening a JoyClub page unlocks and reloads it once; the menu then saves full-size photos
-* [ ] Unlocked session: no unlock tab, the download starts at once
-* [ ] Wrong stored password: one attempt, red badge "18+ unlock failed", log without the password, nothing pixelated saved silently
-* [ ] No stored password: the unlock tab opens for manual entry
-* [ ] `npm test` and `npm run test:e2e` pass
+* [ ] Locked session with a stored password: a toolbar ZIP of a profile with 18+ photos holds full-size photos, without any user interaction (manual testing required; session without auto mode)
+  * **Note:** Automated against the fake prompt: `tests/e2e/download.spec.js` › "a locked session types the stored password into the prompt before the album API" (one submit, every GraphQL call after the unlock, prompt tab closed, clean badge).
+* [ ] Locked session with a stored password: opening a JoyClub page unlocks and reloads it once; the menu then saves full-size photos (manual testing required; session without auto mode)
+  * **Note:** Automated against the fake prompt: E2E › "a JoyClub page loaded locked is unlocked with the stored password and reloaded"; integration › "two locked pages share one unlock and are both reloaded", "a locked page does nothing without a password, from a subframe, or after a failed unlock".
+* [x] Unlocked session: no unlock tab, the download starts at once **Note:** Verified via E2E › "an unlocked session opens no prompt" and integration › "an unlocked session downloads at once, without a prompt tab".
+* [x] Wrong stored password: one attempt, red badge "18+ unlock failed", log without the password, nothing pixelated saved silently **Note:** Verified via integration › "a wrong password is tried once, then a red badge and a log without the password; no album is loaded" (badge "18+ unlock failed (password not accepted)", one submit, no fetcher, failure flag set; mocked timers) and E2E › "the context menu asks to unlock 18+ first …". JoyClub's real error page for a wrong password is unknown; the 20 s timeout covers it.
+* [x] No stored password: the unlock tab opens for manual entry **Note:** Verified via integration › "without a stored password the prompt opens in front for the user" (`active: true`, no submit, ZIP after the user's unlock).
+* [x] `npm test` and `npm run test:e2e` pass **Note:** 679 unit/integration tests, 28 E2E tests (2026-10-10, after the review fixes).

@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import JSZip from 'jszip';
-import { test, expect, MISSING_PHOTO_UUID, routeJoyclubApi } from './fixtures.js';
+import {
+  test, expect, FSK18_PASSWORD, MISSING_PHOTO_UUID, fsk18StatusPage, routeJoyclubApi,
+} from './fixtures.js';
 import { captionsResult, listResult, profileTextResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
 import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 import { VIDEO_ID_1, VIDEO_ID_2 } from '../fixtures/video-api.js';
@@ -41,6 +43,9 @@ const WARNING_COLOR_RGBA = [224, 160, 0, 255];
 // #d00000 as getBadgeBackgroundColor reports it.
 const ERROR_COLOR_RGBA = [208, 0, 0, 255];
 const EXPECTED_STEM = 'TestOwner_1001';
+const LOCKED_PAGE_URL = 'https://www.joyclub.de/e2e/locked';
+const GRAPH_URL = 'https://apiv2.joyclub.com/graph/';
+const UNLOCK_TIMEOUT_MS = 10000;
 
 async function serve(page, url, html) {
   await page.route(url, (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
@@ -147,14 +152,19 @@ function hasOffscreenDocument(serviceWorker) {
   return serviceWorker.evaluate(() => chrome.offscreen.hasDocument());
 }
 
+function storePassword(serviceWorker, password) {
+  return serviceWorker.evaluate((fsk18Password) => chrome.storage.local.set({ fsk18Password }), password);
+}
+
 async function serveProfile(page, imageServer, {
-  secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus, videos,
+  secondUuid = testUuid(2), graphStatus, list = ALBUM_LIST, messages, clubMailStatus, videos, fsk18Status,
 } = {}) {
   const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
   await routeJoyclubApi(page.context(), {
     list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, graphStatus, messages, clubMailStatus, videos,
   });
-  await serve(page, PROFILE_URL, await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
+  const html = await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` });
+  await serve(page, PROFILE_URL, fsk18Status ? html.replace('<body ', `<body data-session-fsk18-status="${fsk18Status}" `) : html);
 }
 
 test('downloads the lightbox image as <Owner>_<photo-id>.jpg', async ({ page, serviceWorker, imageServer }) => {
@@ -529,12 +539,13 @@ test('the context menu saves a feed member card from its picture sources under t
   expect(result.url).toBe(`${imageServer.base}/${testUuid(3)}/orig/image_1920_k.jpg`);
 });
 
-test('the context menu keeps the served size of a photo behind the FSK18 gate', async ({ page, serviceWorker, imageServer }) => {
+test('the context menu asks to unlock 18+ first on a photo behind the FSK18 gate', async ({ page, serviceWorker, imageServer }) => {
   await serve(page, FEED_URL, await fixture('feed.html', { __IMAGE_BASE__: imageServer.base }));
 
   const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.picture-ui.gated'));
 
-  expect(result.url).toBe(`${imageServer.base}/${testUuid(4)}/orig/image_180_k.jpg`);
+  expect(result).toBeNull();
+  expect((await badgeState(serviceWorker)).title).toBe('Hidden Image Downloader: unlock 18+ first');
 });
 
 test('the context menu saves the image below the pointer inside a JoyClub iframe', async ({ page, serviceWorker, imageServer }) => {
@@ -548,4 +559,66 @@ test('the context menu saves the image below the pointer inside a JoyClub iframe
   const result = await saveHiddenImageAt(page, serviceWorker, await centerOf(frame, '.picture-ui:not(.gated)'), frame);
 
   expect(result.filename).toBe('CardUser_00000003.jpg');
+});
+
+test('the options page stores and forgets the FSK18 password', async ({ page, serviceWorker }) => {
+  await serviceWorker.evaluate(() => chrome.storage.session.set({ fsk18UnlockFailed: true }));
+  await page.goto(`chrome-extension://${new URL(serviceWorker.url()).host}/options.html`);
+  const status = page.getByRole('status');
+  await expect(status).toHaveText(/No password stored/);
+
+  await page.getByLabel('JoyClub password').fill(FSK18_PASSWORD);
+  await page.getByRole('button', { name: 'Save password' }).click();
+
+  await expect(status).toHaveText('A password is stored.');
+  await expect(page.getByLabel('JoyClub password')).toHaveValue('');
+  expect(await serviceWorker.evaluate(() => chrome.storage.local.get('fsk18Password'))).toEqual({ fsk18Password: FSK18_PASSWORD });
+  expect(await serviceWorker.evaluate(() => chrome.storage.session.get('fsk18UnlockFailed'))).toEqual({});
+
+  await page.getByRole('button', { name: 'Forget password' }).click();
+
+  await expect(status).toHaveText(/No password stored/);
+  expect(await serviceWorker.evaluate(() => chrome.storage.local.get('fsk18Password'))).toEqual({});
+});
+
+test('a locked session types the stored password into the prompt before the album API', async ({ context, page, serviceWorker, imageServer, joyclubServer: { fsk18: session } }) => {
+  await serveProfile(page, imageServer, { fsk18Status: '0' });
+  await storePassword(serviceWorker, FSK18_PASSWORD);
+  const unlockedAtGraph = [];
+  await context.route(GRAPH_URL, (route) => {
+    unlockedAtGraph.push(session.unlocked);
+    return route.fallback();
+  });
+
+  const result = await clickAction(serviceWorker);
+
+  expect(session).toEqual({ unlocked: true, submits: 1 });
+  expect(unlockedAtGraph.length).toBeGreaterThan(0);
+  expect(unlockedAtGraph.every(Boolean)).toBe(true);
+  expect(result.filename).toBe('TestOwner.zip');
+  expect(context.pages()).toHaveLength(1);
+  expect((await badgeState(serviceWorker)).text).toBe('');
+});
+
+test('an unlocked session opens no prompt', async ({ context, page, serviceWorker, imageServer, joyclubServer: { fsk18: session } }) => {
+  await serveProfile(page, imageServer, { fsk18Status: '1' });
+  await storePassword(serviceWorker, FSK18_PASSWORD);
+
+  const result = await clickAction(serviceWorker);
+
+  expect(result.filename).toBe('TestOwner.zip');
+  expect(session.submits).toBe(0);
+  expect(context.pages()).toHaveLength(1);
+});
+
+test('a JoyClub page loaded locked is unlocked with the stored password and reloaded', async ({ context, page, serviceWorker, joyclubServer: { fsk18: session } }) => {
+  await storePassword(serviceWorker, FSK18_PASSWORD);
+  await page.route(LOCKED_PAGE_URL, (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: fsk18StatusPage(session) }));
+
+  await page.goto(LOCKED_PAGE_URL);
+
+  await expect.poll(() => page.evaluate(() => document.body.dataset.sessionFsk18Status), { timeout: UNLOCK_TIMEOUT_MS })
+    .toBe('1');
+  expect(session.submits).toBe(1);
+  await expect.poll(() => context.pages().length, { timeout: UNLOCK_TIMEOUT_MS }).toBe(1);
 });

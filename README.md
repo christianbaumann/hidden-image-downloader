@@ -12,7 +12,7 @@ It runs in Chrome only and on JoyClub only (`www.joyclub.de`, `www.joyclub.com`)
 
 ### Context menu: "Save hidden image"
 
-Right-click any image on a JoyClub page (album grid, profile cards, lightbox, feed, photo detail) and choose "Save hidden image". It saves the image below the transparent overlay, not the overlay GIF: the first element under the pointer with a background image, else the widest entry of a `srcset`, else the address of a plain image that is no GIF. It works inside JoyClub iframes too. On feed member cards the name starts with the card's user name. A smaller or cropped version (feed, cards) is saved as the photo's full-size `.jpg` when JoyClub has one; photos behind JoyClub's FSK18 activation stay at the size the page shows. A right-click on a dark backdrop, such as beside the lightbox photo, finds no image instead of saving a photo hidden behind it. The name follows the rules above. On an album page (`/profile/fotoalbum/…`) the name includes album title and position, `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as in the profile ZIP. The menu shows only on JoyClub pages. In a tab that was open before the extension was installed or reloaded, the badge says "reload the page and try again".
+Right-click any image on a JoyClub page (album grid, profile cards, lightbox, feed, photo detail) and choose "Save hidden image". It saves the image below the transparent overlay, not the overlay GIF: the first element under the pointer with a background image, else the widest entry of a `srcset`, else the address of a plain image that is no GIF. It works inside JoyClub iframes too. On feed member cards the name starts with the card's user name. A smaller or cropped version (feed, cards) is saved as the photo's full-size `.jpg` when JoyClub has one. A photo behind JoyClub's FSK18 activation (page loaded while 18+ content is locked) is not saved, since the page has only its pixelated version; the badge says "unlock 18+ first" (see "18+ content"). A right-click on a dark backdrop, such as beside the lightbox photo, finds no image instead of saving a photo hidden behind it. The name follows the rules above. On an album page (`/profile/fotoalbum/…`) the name includes album title and position, `<Owner>_<Album>_<nn>_<photo-id>.<ext>`, the same as in the profile ZIP. The menu shows only on JoyClub pages. In a tab that was open before the extension was installed or reloaded, the badge says "reload the page and try again".
 
 ### Profile photos
 
@@ -32,6 +32,17 @@ On a profile page (`/profile/<id>.…`), its album overview (`/profile/fotos/…
 ### ClubMail conversation
 
 On an open ClubMail conversation (`/clubmail/conversation/conversation-wrapper-personal-<id>-<id>/`), the click saves only that conversation as `<Partner>_ClubMail.zip`: inside the top folder `<Partner>_ClubMail/`, the `ClubMail/` folder with the attachments, `conversation.md` and `conversation.html`, as described above. It skips the album list. The badge shows `0%` → `10%` while the conversation loads, then the attachment count. If the conversation cannot be read, nothing is saved and the badge turns red with the tooltip "ClubMail unavailable (<reason>)", with the reasons listed above; an empty conversation shows "no lightbox image or profile photos found". A conversation without attachments gives a ZIP with only the two transcripts. The conversation is not marked as read.
+
+### 18+ content
+
+JoyClub shows 18+ photos only after you re-enter your password once per session; while locked, the album API and the pages serve pixelated 180 px versions. Before a profile ZIP the extension checks the session (`body[data-session-fsk18-status]`). If it is locked, it opens JoyClub's prompt (`/login/agecheck.html`):
+
+- With a password stored on the options page (`chrome://extensions` → Details → Extension options), it opens the prompt in a background tab, types the password, submits it once and closes the tab when JoyClub is unlocked. A JoyClub page that loads while locked is unlocked the same way and then reloaded, so "Save hidden image" finds the full-size photos.
+- Without a stored password, the prompt opens in front for you to type it (up to 3 minutes); the download goes on afterwards.
+
+A wrong password, JoyClub's rate limit ("Zugangsdaten zu oft fehlerhaft eingegeben") or a closed prompt ends the click with a red badge "18+ unlock failed (<reason>)" and the log. The extension never tries a password twice per click, and after a failure it does not unlock on page loads again until Chrome restarts or you save a password again.
+
+The password is stored unencrypted in the Chrome profile (`chrome.storage.local`); anyone who can read the profile on disk can read it. The extension types it only into JoyClub's prompt (`identity.joyclub.com`) and never logs it. "Forget password" deletes it.
 
 ### Only new files
 
@@ -64,6 +75,7 @@ Manual checks (they need a real JoyClub session, which the tests cannot have):
 - Export a profile with videos: the mp4 files in `Videos/` play in QuickTime and VLC with sound, full length.
 - The ZIP on disk has the requested name (Playwright saves downloads under GUID names).
 - "Download everything again" shows when right-clicking the toolbar icon, and "Save hidden image" does not (Playwright cannot open either menu; the tests call the handler).
+- Locked session with a stored password: a profile ZIP of a profile with 18+ photos holds full-size photos without any interaction; opening a JoyClub page unlocks and reloads it once. The tests use a fake prompt; the real one is JoyClub's Vue form.
 - "Save hidden image" shows in Chrome's context menu on JoyClub pages and not on other sites, and saves the right image on a real album page, profile, feed and photo detail page (Playwright cannot open Chrome's context menu; the tests call its handler).
 
 `vendor/jszip.min.js` is JSZip from npm, pinned in `package.json`. To update it, bump the version, run `npm install`, then `cp node_modules/jszip/dist/jszip.min.js vendor/jszip.min.js` and restore its two header lines. `tests/unit/vendor-jszip.test.js` checks that the copy matches. `vendor/mux.min.js` (mux.js, converts the video streams) is vendored the same way from `node_modules/mux.js/dist/mux.min.js`; `tests/unit/vendor-muxjs.test.js` checks it.

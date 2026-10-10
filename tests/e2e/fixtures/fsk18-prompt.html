@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>FSK18 prompt fixture</title></head>
+<body>
+  <p>Um die FSK18-Freischaltung zu aktivieren, gib bitte hier dein JOYclub-Passwort ein</p>
+  <script>
+    // Rendered late and bound like Vue: the model follows input events only, not a bare value change.
+    const RENDER_DELAY_MS = 300;
+    setTimeout(() => {
+      document.body.insertAdjacentHTML('beforeend', `
+        <form method="get">
+          <input type="hidden" name="username" autocomplete="username" value="e2e">
+          <input class="v-field__input" id="input-7" type="password" autocomplete="current-password">
+          <j-button class="submit-btn">Freischalten</j-button>
+          <j-button class="cancel-btn">Abbrechen</j-button>
+        </form>`);
+      let model = '';
+      document.querySelector('input[type=password]').addEventListener('input', (event) => {
+        model = event.target.value;
+      });
+      document.querySelector('j-button.submit-btn').addEventListener('click', () => {
+        window.location.href = `/ui/fsk18/submit?password=${encodeURIComponent(model)}`;
+      });
+    }, RENDER_DELAY_MS);
+  </script>
+</body>
+</html>

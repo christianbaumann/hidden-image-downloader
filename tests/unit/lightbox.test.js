@@ -101,11 +101,6 @@ describe('toDownloadCandidates', () => {
     ]);
   });
 
-  test('keeps the served size of a gated image', () => {
-    const crop = `${IMAGE_BASE}/${testUuid(2)}/1-1/image_720_k.jpg?cache=c`;
-    assert.deepEqual(imageCandidates(crop, { owner: 'TestOwner', gated: true }).map(({ url }) => url), [crop]);
-  });
-
   test('takes the photo key from a UUID image url over data-photo', () => {
     const [first, second] = toDownloadCandidates({ ...raw, style: uuidStyle });
     assert.equal(first.filename, 'BitPaerchen_00000002.jpg');

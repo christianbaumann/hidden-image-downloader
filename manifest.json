@@ -12,6 +12,10 @@
   "action": {
     "default_title": "Download hidden image"
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  },
   "permissions": [
     "scripting",
     "downloads",
@@ -23,7 +27,8 @@
     "https://www.joyclub.de/*",
     "https://www.joyclub.com/*",
     "https://image-user.feig-partner.de/*",
-    "https://uservideo.joyclub.de/*"
+    "https://uservideo.joyclub.de/*",
+    "https://identity.joyclub.com/*"
   ],
   "content_scripts": [
     {

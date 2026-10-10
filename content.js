@@ -1,10 +1,29 @@
 // Runs on JoyClub pages. Remembers the last right-click; the "Save hidden image" menu asks for the image layers below it.
 // A content script is no ES module: DESCRIBE_ACTION is repeated in background.js.
 const DESCRIBE_ACTION = 'describe-hidden-image';
-// Photos behind JoyClub's FSK18 activation link there; they keep the size the page serves.
+// Same value as FSK18_STATUS_ACTION in background.js.
+const FSK18_STATUS_ACTION = 'fsk18-status';
+// Photos behind JoyClub's FSK18 activation link: the page serves only their pixelated variant.
 const FSK18_GATE_LINK = 'a[href*="/webauth/activate/fsk18/"]';
 
 let lastContextMenu = null;
+
+// Top frame only: the page's FSK18 status goes to the service worker, which unlocks and reloads a locked page
+// when a password is stored.
+if (window === window.top) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const status = document.body?.dataset.sessionFsk18Status;
+    if (status === undefined) {
+      return;
+    }
+    // After an extension reload the old content script has no extension context: sendMessage throws.
+    try {
+      chrome.runtime.sendMessage({ action: FSK18_STATUS_ACTION, status }).catch(() => {});
+    } catch {
+      // Nothing to unlock with.
+    }
+  });
+}
 
 document.addEventListener('contextmenu', (event) => {
   lastContextMenu = { x: event.clientX, y: event.clientY };

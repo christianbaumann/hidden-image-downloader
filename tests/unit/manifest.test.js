@@ -36,12 +36,13 @@ test('offscreen document exists', () => {
   assert.ok(existsSync(resolve(root, 'offscreen.html')));
 });
 
-test('manifest grants host access to JoyClub, its image host and its video host', () => {
+test('manifest grants host access to JoyClub, its image host, its video host and its FSK18 prompt', () => {
   assert.deepEqual(manifest.host_permissions, [
     'https://www.joyclub.de/*',
     'https://www.joyclub.com/*',
     'https://image-user.feig-partner.de/*',
     'https://uservideo.joyclub.de/*',
+    'https://identity.joyclub.com/*',
   ]);
 });
 
@@ -56,4 +57,9 @@ test('manifest icons exist at 16, 48 and 128 px', () => {
     assert.equal(path, `icons/icon${size}.png`);
     assert.ok(existsSync(resolve(root, path)));
   }
+});
+
+test('manifest has an embedded options page', () => {
+  assert.deepEqual(manifest.options_ui, { page: 'options.html', open_in_tab: false });
+  assert.ok(existsSync(resolve(root, 'options.html')));
 });

@@ -1,4 +1,8 @@
 import { clubMailConversationIds, fetchClubMailImages, withReason } from './lib/clubmail.js';
+import {
+  LOCKED_STATUS, PASSWORD_KEY, UNLOCKED_STATUS, UNLOCK_FAILED_KEY, Fsk18UnlockError, agecheckUrl, isJoyclubTab,
+  isPromptTab, readFsk18Status, submitFsk18Password,
+} from './lib/fsk18.js';
 import { toHiddenImageCandidates } from './lib/hidden-image.js';
 import { filterNewEntries, mergeRecord, pendingKey, savedKey, savedRecord } from './lib/incremental.js';
 import { extractLightboxData, toDownloadCandidates, UnsupportedPageError } from './lib/lightbox.js';
@@ -45,6 +49,13 @@ const FULL_MENU_CONTEXTS = ['action'];
 const JOYCLUB_PAGES = ['https://www.joyclub.de/*', 'https://www.joyclub.com/*'];
 // Same value as DESCRIBE_ACTION in content.js.
 const DESCRIBE_IMAGE_ACTION = 'describe-hidden-image';
+// Same value as FSK18_STATUS_ACTION in content.js.
+const FSK18_STATUS_ACTION = 'fsk18-status';
+const TOP_FRAME_ID = 0;
+const UNLOCK_POLL_MS = 250;
+const UNLOCK_STEP_TIMEOUT_MS = 20000;
+// Without a stored password the user types it into the prompt.
+const MANUAL_UNLOCK_TIMEOUT_MS = 180000;
 
 // Download URL → filename; download()'s filename is ignored while another extension listens to onDeterminingFilename.
 const pendingFilenames = new Map();
@@ -58,6 +69,15 @@ let nextZipJobId = 0;
 let offscreenQueue = Promise.resolve();
 // Merges into saved:<userId> run one after the other, so two finished downloads can't drop each other's keys.
 let recordQueue = Promise.resolve();
+// The running FSK18 unlock; clicks and locked page loads during it wait for it instead of starting another one.
+let unlocking = null;
+// Tabs that show JoyClub's FSK18 prompt for the extension; their own page loads never start an unlock.
+const unlockTabIds = new Set();
+// Tabs a page-load unlock has reloaded and that have not reported unlocked since: a locked report starts no unlock,
+// so there is no reload loop.
+const reloadedTabIds = new Set();
+// Tabs a toolbar click is reading from; a page-load unlock does not reload them under the click.
+const clickTabIds = new Set();
 
 class DownloadFailedError extends Error {
   name = 'DownloadFailedError';
@@ -75,6 +95,8 @@ const ERROR_REASONS = {
   NoImageUrlError: 'image address not found',
   DownloadFailedError: 'download failed',
   PageNotReadyError: 'reload the page and try again',
+  Fsk18UnlockError: '18+ unlock failed',
+  Fsk18LockedError: 'unlock 18+ first',
 };
 
 // The tab may close mid-click; its badge is gone then anyway.
@@ -425,6 +447,133 @@ async function saveSingleImage(candidates, log) {
   return { url, filename, downloadId };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The tab once predicate (sync or async) holds; fails when the tab closes or the time is up.
+async function waitForTab(tabId, predicate, timeoutMs, reason) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let tab;
+    try {
+      tab = await chrome.tabs.get(tabId);
+    } catch {
+      throw new Fsk18UnlockError('prompt closed');
+    }
+    if (await predicate(tab)) {
+      return tab;
+    }
+    await sleep(UNLOCK_POLL_MS);
+  }
+  throw new Fsk18UnlockError(reason);
+}
+
+// body[data-session-fsk18-status] of a JoyClub tab; null when unreadable (no JoyClub page).
+async function readStatus(tabId) {
+  try {
+    const [injection] = await chrome.scripting.executeScript({ target: { tabId }, func: readFsk18Status });
+    return injection.result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function submitPassword(tabId, password) {
+  let submitted = false;
+  try {
+    const [injection] = await chrome.scripting.executeScript({ target: { tabId }, func: submitFsk18Password, args: [password] });
+    submitted = injection.result === true;
+  } catch {
+    // Reported below.
+  }
+  if (!submitted) {
+    throw new Fsk18UnlockError('no password field');
+  }
+}
+
+// One attempt: JoyClub rate-limits wrong passwords. A stored password is typed into a background tab;
+// without one the prompt opens in front for the user. Never logs the password.
+async function unlockFsk18(tabUrl, log) {
+  const { [PASSWORD_KEY]: password } = await chrome.storage.local.get(PASSWORD_KEY);
+  log.add(password ? 'fsk18: unlocking' : 'fsk18: unlocking manually');
+  const prompt = await chrome.tabs.create({ url: agecheckUrl(tabUrl), active: !password });
+  unlockTabIds.add(prompt.id);
+  try {
+    // A tab that loaded while locked still says so after an unlock elsewhere; JoyClub then shows no prompt.
+    const isUnlockedTab = async (tab) => isJoyclubTab(tab) && await readStatus(tab.id) === UNLOCKED_STATUS;
+    const first = await waitForTab(prompt.id, async (tab) => isPromptTab(tab) || await isUnlockedTab(tab),
+      UNLOCK_STEP_TIMEOUT_MS, 'no password prompt');
+    if (!isPromptTab(first)) {
+      log.add('fsk18: already unlocked');
+      return;
+    }
+    if (password) {
+      await submitPassword(prompt.id, password);
+    }
+    await waitForTab(prompt.id, isJoyclubTab, password ? UNLOCK_STEP_TIMEOUT_MS : MANUAL_UNLOCK_TIMEOUT_MS,
+      'password not accepted');
+    if (await readStatus(prompt.id) !== UNLOCKED_STATUS) {
+      throw new Fsk18UnlockError('still locked');
+    }
+    log.add('fsk18: unlocked');
+  } catch (error) {
+    await chrome.storage.session.set({ [UNLOCK_FAILED_KEY]: true });
+    throw error;
+  } finally {
+    unlockTabIds.delete(prompt.id);
+    await chrome.tabs.remove(prompt.id).catch(() => {});
+  }
+}
+
+function sharedUnlock(tabUrl, log) {
+  unlocking ??= unlockFsk18(tabUrl, log).finally(() => {
+    unlocking = null;
+  });
+  return unlocking;
+}
+
+// A locked session gets pixelated 18+ photos from the album API, so it is unlocked first.
+async function ensureUnlocked(tab, log) {
+  const status = await readStatus(tab.id);
+  log.add(`fsk18: status ${status ?? 'unknown'}`);
+  if (status === LOCKED_STATUS) {
+    await sharedUnlock(tab.url, log);
+  }
+}
+
+// A JoyClub page reported its status (content.js). Locked, with a stored password: unlock once and reload it.
+// A failed unlock is not repeated in this browser session, so a wrong password costs one attempt.
+// A failure shows the badge only: nobody clicked, so no log is downloaded.
+async function onPageLocked(message, sender) {
+  const tab = sender?.tab;
+  if (message?.action !== FSK18_STATUS_ACTION || sender.frameId !== TOP_FRAME_ID || !tab || unlockTabIds.has(tab.id)) {
+    return;
+  }
+  if (message.status !== LOCKED_STATUS) {
+    reloadedTabIds.delete(tab.id);
+    return;
+  }
+  if (reloadedTabIds.has(tab.id)) {
+    return;
+  }
+  const { [PASSWORD_KEY]: password } = await chrome.storage.local.get(PASSWORD_KEY);
+  const { [UNLOCK_FAILED_KEY]: failed } = await chrome.storage.session.get(UNLOCK_FAILED_KEY);
+  if (!password || failed) {
+    return;
+  }
+  const log = createLog();
+  log.add('path: page locked', { url: tab.url });
+  try {
+    await sharedUnlock(tab.url, log);
+    if (!clickTabIds.has(tab.id)) {
+      reloadedTabIds.add(tab.id);
+      await chrome.tabs.reload(tab.id);
+    }
+  } catch (error) {
+    const reason = ERROR_REASONS[error.name];
+    await (reason ? showError(tab.id, withReason(reason, error.reason)) : clearBadge(tab.id));
+  }
+}
+
 // Known errors: red badge and log, answer null. Unexpected errors: log, then rethrow.
 async function reportFailure(tabId, log, error) {
   const reason = ERROR_REASONS[error.name];
@@ -456,11 +605,20 @@ export async function handleActionClick(tab, { full = false } = {}) {
     const userId = profileUserId(tab.url);
     if (userId) {
       log.add('path: profile', { url: tab.url });
-      const [albums, clubMail, videos] = await extractAllWithProgress(tab.id, [
-        [fetchProfileAlbums, [userId]],
-        [fetchClubMailImages, [[userId]], CLUBMAIL_FAILED],
-        [fetchProfileVideos, [userId], VIDEOS_FAILED],
-      ]);
+      let albums;
+      let clubMail;
+      let videos;
+      clickTabIds.add(tab.id);
+      try {
+        await ensureUnlocked(tab, log);
+        [albums, clubMail, videos] = await extractAllWithProgress(tab.id, [
+          [fetchProfileAlbums, [userId]],
+          [fetchClubMailImages, [[userId]], CLUBMAIL_FAILED],
+          [fetchProfileVideos, [userId], VIDEOS_FAILED],
+        ]);
+      } finally {
+        clickTabIds.delete(tab.id);
+      }
       logAlbums(log, albums);
       logVideos(log, videos);
       logClubMail(log, clubMail);
@@ -517,5 +675,9 @@ chrome.contextMenus.onClicked.addListener(handleMenuClick);
 chrome.downloads.onDeterminingFilename.addListener(suggestOwnFilename);
 chrome.downloads.onChanged.addListener(onDownloadChanged);
 chrome.runtime.onMessage.addListener(onZipProgress);
+// Sync wrapper: a returned promise would count as an async answer.
+chrome.runtime.onMessage.addListener((message, sender) => {
+  onPageLocked(message, sender);
+});
 globalThis.handleActionClick = handleActionClick;
 globalThis.handleMenuClick = handleMenuClick;
