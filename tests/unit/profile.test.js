@@ -695,17 +695,39 @@ describe('fetchProfileAlbums', () => {
   const TITLE_WAIT_MS = 3000;
   const MAX_TICKS = (2 * TITLE_WAIT_MS) / TITLE_POLL_MS;
 
+  const PROFILE_PATH = '/profile/1000001.testowner.html';
+  const MAIN_ALBUM_PATH = '/profile/fotoalbum/1000001.testowner.html';
+  const REGULAR_ALBUM_PATH = '/profile/fotoalbum/1000001-201.testowner.html';
+  const DOCUMENT_POSITION_FOLLOWING = 4;
+  const ACCOUNT_HEADLINE = { text: 'Account', beforePhotos: true };
+
   // cards: an array, or (now) => array for a page that is still rendering; the mocked clock starts at 0.
-  function stubDocument({ owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD] } = {}) {
+  // headlines: [{ text, beforePhotos }] in document order; photos: whether the page has an a.album-link.
+  function stubDocument({
+    owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD], pathname = PROFILE_PATH, headlines = [], photos = true,
+  } = {}) {
     const anchor = ({ href, title }) => ({
       getAttribute: (name) => (name === 'href' ? href : null),
       querySelector: (selector) => (selector === '.title' ? { textContent: ` ${title} ` } : null),
     });
+    const headline = ({ text, beforePhotos }) => ({
+      textContent: ` ${text} `,
+      compareDocumentPosition: () => (beforePhotos ? DOCUMENT_POSITION_FOLLOWING : 2),
+    });
     const cardsAt = typeof cards === 'function' ? cards : () => cards;
-    globalThis.document = {
-      querySelector: (selector) => (selector === 'h1.profile-base-info__user-name' && owner !== null ? { textContent: owner } : null),
-      querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? cardsAt(Date.now()).map(anchor) : []),
+    const elements = {
+      'h1.profile-base-info__user-name': owner === null ? null : { textContent: owner },
+      'a.album-link': photos ? {} : null,
     };
+    globalThis.document = {
+      querySelector: (selector) => elements[selector] ?? null,
+      querySelectorAll: (selector) => ({
+        'a.profile-album-card__link': () => cardsAt(Date.now()).map(anchor),
+        'h2.profile-headline': () => headlines.map(headline),
+      })[selector]?.() ?? [],
+    };
+    globalThis.location = { pathname };
+    globalThis.window = { Node: { DOCUMENT_POSITION_FOLLOWING } };
   }
 
   // Advances the mocked clock until the fetcher settles; resolves with its result and the elapsed time.
@@ -743,6 +765,8 @@ describe('fetchProfileAlbums', () => {
     mock.timers.reset();
     globalThis.fetch = originalFetch;
     delete globalThis.document;
+    delete globalThis.location;
+    delete globalThis.window;
   });
 
   test('fetches the token, then album list, sources, captions and profile text', async () => {
@@ -873,7 +897,53 @@ describe('fetchProfileAlbums', () => {
     assert.ok(elapsed >= TITLE_STABLE_MS && elapsed < TITLE_STABLE_MS + 2 * TITLE_POLL_MS);
   });
 
-  test('gives up on a page without album cards after the wait limit', async () => {
+  test('a main album page takes the last headline before the photos at once', async () => {
+    stubDocument({
+      pathname: MAIN_ALBUM_PATH,
+      cards: [],
+      headlines: [ACCOUNT_HEADLINE, { text: 'Fotos von uns', beforePhotos: true }, { text: 'Kommentare', beforePhotos: false }],
+    });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed < TITLE_POLL_MS);
+  });
+
+  test('a main album page without photos takes its last headline', async () => {
+    stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [], photos: false, headlines: [ACCOUNT_HEADLINE, { text: 'Fotos von uns' }] });
+
+    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.mainAlbumTitle, 'Fotos von uns');
+  });
+
+  test('a main album page without headline gives an empty title at once', async () => {
+    stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [] });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, '');
+    assert.ok(elapsed < TITLE_POLL_MS);
+  });
+
+  test('a regular album page gives an empty main title at once, not its own headline', async () => {
+    stubDocument({ pathname: REGULAR_ALBUM_PATH, cards: [], headlines: [ACCOUNT_HEADLINE, { text: 'Aktuelles', beforePhotos: true }] });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, '');
+    assert.ok(elapsed < TITLE_POLL_MS);
+  });
+
+  test('an album overview page waits for the main card like the profile page', async () => {
+    stubDocument({ pathname: '/profile/fotos/1000001.testowner.html', headlines: [{ text: 'Fotos', beforePhotos: true }] });
+
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= TITLE_STABLE_MS);
+  });
+
+  test('gives up on a profile page without album cards after the wait limit', async () => {
     stubDocument({ cards: [] });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));

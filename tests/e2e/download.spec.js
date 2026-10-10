@@ -12,6 +12,9 @@ const PROFILE_URL = 'https://www.joyclub.de/profile/1000001.testowner.html';
 const CONVERSATION_URL = 'https://www.joyclub.de/clubmail/conversation/conversation-wrapper-personal-1000002-1000001/';
 const NOTHING_URL = 'https://www.joyclub.de/e2e/nothing';
 const ALBUM_PAGE_URL = 'https://www.joyclub.de/profile/fotoalbum/1000001.testowner.html';
+const REGULAR_ALBUM_PAGE_URL = 'https://www.joyclub.de/profile/fotoalbum/1000001-201.testowner.html';
+// fetchProfileAlbums waits up to 3 s for the main album card on profile pages; album pages have none.
+const CARD_WAIT_MS = 3000;
 const FEED_URL = 'https://www.joyclub.de/e2e/feed';
 const FRAME_URL = 'https://www.joyclub.de/e2e/frame';
 const MENU_ITEM_ID = 'save-hidden-image';
@@ -209,6 +212,27 @@ test('downloads every accessible album into its own folder', async ({ page, serv
   await expect.poll(() => hasOffscreenDocument(serviceWorker), { timeout: DOWNLOAD_TIMEOUT_MS }).toBe(false);
   expect(await logDownloadIds(serviceWorker)).toEqual([]);
 });
+
+const ALBUM_PAGES = [
+  { kind: 'main', url: ALBUM_PAGE_URL, html: 'album.html', mainFolder: 'Fotos-von-uns' },
+  { kind: 'regular', url: REGULAR_ALBUM_PAGE_URL, html: 'album-regular.html', mainFolder: 'Hauptalbum' },
+];
+for (const { kind, url, html, mainFolder } of ALBUM_PAGES) {
+  test(`the ZIP on a ${kind} album page names the main folder ${mainFolder} without the card wait`, async ({ page, serviceWorker, imageServer }) => {
+    const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: testUuid(2) }], imageServer.base);
+    await routeJoyclubApi(page.context(), { list: ALBUM_LIST, sources });
+    await serve(page, url, await fixture(html, { __IMAGE_BASE__: imageServer.base }));
+
+    const startedAt = Date.now();
+    const result = await clickAction(serviceWorker);
+
+    expect(Date.now() - startedAt).toBeLessThan(CARD_WAIT_MS);
+    expect((await zipEntries(serviceWorker, result)).filter((name) => name.endsWith('.jpg'))).toEqual([
+      'Aktuelles/TestOwner_Aktuelles_01_00000002.jpg',
+      `${mainFolder}/TestOwner_${mainFolder}_01_00000001.jpg`,
+    ]);
+  });
+}
 
 test('remuxes a profile video into Videos/ as mp4 and lists a locked one in skipped.txt', async ({ page, serviceWorker, imageServer }) => {
   await serveProfile(page, imageServer, { videos: [VIDEO_ID_1, { id: VIDEO_ID_2, source: false }] });
