@@ -6,7 +6,7 @@ tags: [research, profile-videos, hls, cloudfront]
 
 # Research 09: profile videos
 
-Live session, 2026-10-09 (playwright-cli, user's cookies, scratchpad only, FSK18 unlocked: `body[data-session-fsk18-status="1"]`); locked session 2026-10-10, see "Locked FSK18 session". One member profile with 13 videos, recorded with `page.on('request')`/`page.on('response')` while opening the lightbox and pressing play; then the same calls were sent by hand from the page. Ids, GUIDs and titles below are synthetic.
+Live session, 2026-10-09 (playwright-cli, user's cookies, scratchpad only, FSK18 unlocked: `body[data-session-fsk18-status="1"]`); locked session 2026-10-10, see "Locked FSK18 session". One member profile with 13 videos (a second one with 17 checked on 2026-10-10, see "Second profile"), recorded with `page.on('request')`/`page.on('response')` while opening the lightbox and pressing play; then the same calls were sent by hand from the page. Ids, GUIDs and titles below are synthetic.
 
 ## Result
 
@@ -14,6 +14,10 @@ Live session, 2026-10-09 (playwright-cli, user's cookies, scratchpad only, FSK18
 - Format: **HLS only** (`application/vnd.apple.mpegurl`, VOD playlists, MPEG-TS segments `video/MP2T`, H.264 + AAC, 4 renditions 144p–480p on the sample, 4 s segments). No `EXT-X-KEY` in any playlist: **no encryption, no DRM**.
 - No plain mp4: the video URL is a master playlist, and the CloudFront access policy covers only `<guid>/hls/*`, so files outside `hls/` (e.g. `<guid>/<id>.mp4`, `<guid>/mp4/<id>.mp4`) answer 403 from CloudFront. Whether an mp4 exists there cannot be told; nothing on the page or in the API references one.
 - Not GraphQL: the list and the sources come from JoyClub's older form-POST endpoints (same form as ClubMail: `cache_killer` + `data` JSON), not from `apiv2.joyclub.com/graph/`.
+
+### Second profile
+
+Another profile named by the user, 2026-10-10, unlocked session, no playback (no `track/watch`): all 17 videos the same format: `data-video` source on `uservideo.joyclub.de/<guid>/hls/<id>.m3u8`, VOD, no `EXT-X-KEY`, no `EXT-X-MAP`, `.ts` segments (`video/MP2T`, sync byte `0x47`). 15 videos have 4 renditions up to 480×854; 2 have 7 up to 1080×1920 (`avc1.4d4028,mp4a.40.2`, one resolution listed twice). The highest rendition has 8–131 segments (~0.5–9 min). Pick the rendition by `BANDWIDTH`/`RESOLUTION`, not by position.
 
 ## Sources
 

@@ -165,10 +165,10 @@ video kind            action
 unencrypted HLS VOD   highest rendition's segments → remux to mp4 (vendored mux.js)
                       → Videos/<Owner>_Videos_<nn>_<id>.mp4, counted in the progress badge
 encrypted / DRM       not downloaded; "Videos: <n> not supported (<format>)" in skipped.txt
-not playable          (locked FSK18 session, owner restriction) per the follow-up spike checks
+no source             (locked FSK18 session) "Videos: <n> not available (FSK18 locked)" in skipped.txt
 ```
 
-Open until the follow-up checks (second profile, locked session) are done: where segments are fetched (tab vs. offscreen with the per-video CloudFront cookies) and where the remux runs.
+Follow-up checks done (2026-10-10): a second profile has the same format; a locked FSK18 session gets no playlist URL, so those videos go to `skipped.txt` (no bypass). Still to design: where segments are fetched (tab vs. offscreen with the per-video CloudFront cookies) and where the remux runs.
 
 ClubMail video attachments are not affected. They already land in `ClubMail/` as files.
 

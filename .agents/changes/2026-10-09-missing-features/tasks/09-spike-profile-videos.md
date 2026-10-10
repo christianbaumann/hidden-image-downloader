@@ -5,7 +5,7 @@ dependencies: []
 
 # Task 09: Spike: profile video format
 
-**Status:** In progress (2026-10-09). Result so far: `../research-09-profile-videos.md`, every profile video is unencrypted HLS, no plain mp4. User decisions: task 10 downloads HLS as mp4; approval after a second live profile with videos (open) and a check in a locked (FSK18) session (done 2026-10-10).
+**Status:** Done and approved (2026-10-10): the user's approval condition (second live profile, locked FSK18 session) is met. Result: `../research-09-profile-videos.md`, every profile video is unencrypted HLS VOD, no plain mp4; a locked session gets no source. User decision: task 10 downloads HLS as mp4.
 
 A research note states whether profiles have videos and how JoyClub serves them (mp4, HLS, DRM), so task 10 can be designed or dropped.
 
@@ -25,8 +25,8 @@ A research note states whether profiles have videos and how JoyClub serves them 
 * [x] Write `../research-09-profile-videos.md`: list source, format, sample request shapes (sanitised), access restrictions
 * [x] If no videos or only HLS/DRM: note it in `.agents/backlog.md`; task 10 reduces to the `skipped.txt` line or is dropped
   * **Note:** Only HLS. User decision 2026-10-09: task 10 downloads HLS as mp4 instead (`design.md#videos-as-mp4-also-from-hls`); the backlog entry is removed.
-* [ ] Confirm the format on a second live profile with videos
-  * **Note:** Open: checking profiles found in the user's feed was blocked by the auto-mode permission check (personal data); needs a profile URL named by the user.
+* [x] Confirm the format on a second live profile with videos
+  * **Note:** Live 2026-10-10, profile named by the user: all 17 videos unencrypted HLS VOD with TS segments; 2 go up to 1080×1920. See the research note, "Second profile".
 * [x] Repeat the list, data and playback calls in a session without FSK18 unlock; note what a locked session gets (blurred flag, source, cookies)
   * **Note:** Live 2026-10-10 with fresh cookies of a locked session (`fsk18-status="0"`): list unchanged (13), `lightbox/data` gives `media_fsk18_blurred: true` and no `data-video` (no playlist URL) for all, thumbnails under `thumbnails/pxl/`. Signed cookies and hand-built playlist URLs were not tried (no FSK18 bypass). See the research note, "Locked FSK18 session".
 
