@@ -18,7 +18,7 @@ Profile ZIP video entries carry the video title before the id (`Videos/<Owner>_V
 
 ## Work
 
-* [ ] Live check: capture `media_title` of real videos and look for placeholder titles; add any to `PLACEHOLDER_TITLES`; record the result in this task (manual testing required) **Note:** Not done: the session's auto-mode classifier refused the live-session subagent (PII). Also open: whether `media_title` carries HTML entities (`&amp;`); it is used raw. Until checked, videos share the photo placeholders (`...`, `Profilbild`)
+* [x] Live check: capture `media_title` of real videos and look for placeholder titles; add any to `PLACEHOLDER_TITLES`; record the result in this task **Note:** Verified live 2026-10-10 (run by the user via playwright-cli with their cookies; uploader ids from `/fotos_videos/`, list + data endpoints only, no playback): 40 profiles, 39 with videos, 406 videos. `media_title` is always a non-empty string, 2–40 code points, 84 with non-ASCII characters, none with HTML entities or tags. The only placeholder is `...` (5 videos), already in `PLACEHOLDER_TITLES`; other repeated titles (2–5×) are real titles of one uploader. Titles starting with `...` lose the dots via the edge trim. No list change
 * [x] `toVideo` (injected, self-contained) adds the raw `title` from `media_title` (only a non-empty string)
 * [x] `toVideoEntries` filters placeholders and builds the name via `photoStem` with the title (`titleSegment`)
 * [x] Unit tests (video with title, without, placeholder) and fixture update; update existing name assertions
