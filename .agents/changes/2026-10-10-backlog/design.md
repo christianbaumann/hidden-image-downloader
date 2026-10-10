@@ -126,6 +126,15 @@ Plug-in points once the approach is known:
 
 If the spike shows no usable translation source, the item ends with a note in `.agents/backlog.md`.
 
+### Spike result (task 06)
+
+Details: `research-02-sed-card.md`. Approach for task 07: API + static translation table.
+
+- Fetch: `getProfileSedCardDataByUserId` (`userId: Int!`, query in research-02) in `fetchProfileAlbums`, in parallel with the album list like `getProfileDescriptionByUserId`; answers the raw `profileDescription.byUserId` result, `null` on any failure or a non-`ProfileDescription` result. Works on album pages (checked by hand), which have no sed card in the DOM.
+- Translate: a pure `lib/` module holds the de-DE tables copied from JoyClub's bundle (field labels, property values, 6 ratings, 66 preference keys) and maps the raw result; an unknown key or value stays as the raw enum string. `height`/`weight` as `<n> cm`/`<n> kg`; `null` fields left out.
+- Render: per person (owner, then partner on couples) the properties, then "Vorlieben" grouped by rating in JoyClub's order (Unbedingt, Steh ich drauf, Situationsabhängig, Mag ich nicht so, Geht gar nicht, Möchte ich gerne ausprobieren), labels sorted with `localeCompare('de')`; `NONE` left out.
+- Not available from the API: age and gender (the card's "34 Jahre" and "(Sie)/(Er)"). Task 07 labels the persons without them.
+
 ## Key Decisions
 
 ### One change folder for all three items
@@ -193,3 +202,9 @@ If the spike shows no usable translation source, the item ends with a note in `.
 - **Decision:** Live spike first; choose between "API + translation table" and "rendered DOM text" afterwards.
 - **Reason:** Neither the query nor a translation source is known.
 - **Trade-offs:** Rejected deciding on DOM text now (works only on the profile page, needs a render wait, the album path has none) and deferring the item.
+
+### Steckbrief and Vorlieben from the API with a static translation table
+
+- **Decision:** Task 07 fetches `getProfileSedCardDataByUserId` in `fetchProfileAlbums` and translates the enums with a static de-DE table in a pure `lib/` module; unknown values stay raw.
+- **Reason:** The album path also runs on `/profile/fotos/…` and `/profile/fotoalbum/…`, which have no sed card in the DOM; the API answers there. JoyClub's labels exist only in hashed, per-release bundle files, so they can't be loaded at runtime by a stable URL.
+- **Trade-offs:** Rejected rendered DOM text (profile page only, render wait, Lit shadow roots, duplicated desktop/mobile cards) and loading the bundle at runtime (hashed file names, minified mapping). The table is German only and needs an update when JoyClub adds options; new keys show as raw enum strings until then.
