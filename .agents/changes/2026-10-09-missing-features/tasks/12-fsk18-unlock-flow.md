@@ -21,7 +21,7 @@ The standard 18+ content that triggers the prompt comes from the user's own prof
 ## Spike (live session, the user types the password)
 
 * [x] Which BitPaerchen content is 18+ and opens the prompt (URL), and whether `/login/agecheck.html` is the better trigger
-  * **Note:** Live 2026-10-09: BitPaerchen's own albums are never gated for BitPaerchen (all `orig/image_1920`, no FSK18 links), so own content cannot trigger the prompt. The trigger is the nav item "FSK18 Freischaltung" (`li.menu_agecheck_login` → `/login/agecheck.html`), which shows "FSK18-Inhalte sind aktuell freigeschaltet" once unlocked. Deviation from the user's choice, to confirm.
+  * **Note:** Live 2026-10-09: BitPaerchen's own albums are never gated for BitPaerchen (all `orig/image_1920`, no FSK18 links), so own content cannot trigger the prompt. The trigger is the nav item "FSK18 Freischaltung" (`li.menu_agecheck_login` → `/login/agecheck.html`), which shows "FSK18-Inhalte sind aktuell freigeschaltet" once unlocked. Deviation from the user's choice, confirmed by the user (2026-10-10).
 * [x] Lock signal without loading 18+ content: gated links on the page, a page attribute, an API field
   * **Note:** `body[data-session-fsk18-status]`: `"0"` locked, `"1"` unlocked (live). Locked also: `li.menu_agecheck_login` in the nav, links to `/webauth/activate/fsk18/?origin_url=<page>?close_on_open=true` (only the page, no photo id), `…/image_180_pxl_<token>` sources.
 * [x] How the unlock is stored: new cookie vs. server-side flag behind `FUP_sid` (compare cookie names before/after, no values); does it survive a new tab, a reload, the service worker?
