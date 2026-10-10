@@ -96,6 +96,7 @@ function describeImageLayers() {
         photoId: element.closest('[data-photo]')?.dataset.photo ?? null,
         linkIndex: albumLinks.indexOf(element.closest('a.album-link')),
         owner: textOf(element.closest('.lightbox_slide')?.querySelector('a.lb_owner_name')),
+        title: textOf(element.closest('.lightbox_slide')?.querySelector('.lb_img_title')),
         userName: element.closest('[user-name]')?.getAttribute('user-name') ?? '',
         gated: element.closest(FSK18_GATE_LINK) !== null,
       };

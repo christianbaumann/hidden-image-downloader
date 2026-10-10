@@ -9,7 +9,7 @@ import {
   UnsupportedPageError,
 } from '../../lib/lightbox.js';
 import { toAlbumZipRequest } from '../../lib/profile.js';
-import { IMAGE_BASE, albumRaw, testUuid } from '../fixtures/album-api.js';
+import { IMAGE_BASE, albumRaw, captionsResult, testUuid } from '../fixtures/album-api.js';
 
 const BASE_URL = 'https://www.joyclub.de/profile/123.html';
 const IMAGE_URL = 'https://x/a.webp?c=1';
@@ -112,6 +112,29 @@ describe('toDownloadCandidates', () => {
     const { entries } = toAlbumZipRequest(albumRaw(), new Date());
     const zipEntry = entries.find(({ name }) => name.startsWith('Aktuelles/'));
     assert.equal(`Aktuelles/${first.filename}`, zipEntry.name);
+  });
+
+  test('puts the lightbox title before the id', () => {
+    const [first, second] = toDownloadCandidates({ ...raw, title: 'Rück Ansicht' });
+    assert.equal(first.filename, 'BitPaerchen_Rück-Ansicht_4711.jpg');
+    assert.equal(second.filename, 'BitPaerchen_Rück-Ansicht_4711.webp');
+  });
+
+  test('keeps the name without title for the placeholder "..." or an empty title', () => {
+    for (const title of ['...', '']) {
+      assert.equal(toDownloadCandidates({ ...raw, title })[0].filename, 'BitPaerchen_4711.jpg', title);
+    }
+  });
+
+  test('names a titled album photo like its entry in the profile ZIP', () => {
+    const [first] = toDownloadCandidates({
+      ...raw, owner: 'TestOwner', title: 'Rück Ansicht', style: uuidStyle, album: 'Aktuelles', position: 1, count: 1,
+    });
+    const captions = captionsResult([{ id: '101' }, { id: '102', title: 'Rück Ansicht' }]);
+    const { entries } = toAlbumZipRequest(albumRaw({ captions }), new Date());
+    const zipEntry = entries.find(({ name }) => name.startsWith('Aktuelles/'));
+    assert.equal(`Aktuelles/${first.filename}`, zipEntry.name);
+    assert.equal(first.filename, 'TestOwner_Aktuelles_01_Rück-Ansicht_00000002.jpg');
   });
 
   test('offers only the original for a jpg', () => {

@@ -45,7 +45,9 @@ const DOWNLOAD_TIMEOUT_MS = 10000;
 const WARNING_COLOR_RGBA = [224, 160, 0, 255];
 // #d00000 as getBadgeBackgroundColor reports it.
 const ERROR_COLOR_RGBA = [208, 0, 0, 255];
-const EXPECTED_STEM = 'TestOwner_1001';
+const EXPECTED_STEM = 'TestOwner_Rück-Ansicht_1001';
+const LIGHTBOX_TITLE = 'Rück Ansicht';
+const PLACEHOLDER_TITLE = '...';
 const LOCKED_PAGE_URL = 'https://www.joyclub.de/e2e/locked';
 const GRAPH_URL = 'https://apiv2.joyclub.com/graph/';
 const UNLOCK_TIMEOUT_MS = 10000;
@@ -170,7 +172,7 @@ async function serveProfile(page, imageServer, {
   await serve(page, PROFILE_URL, fsk18Status ? html.replace('<body ', `<body data-session-fsk18-status="${fsk18Status}" `) : html);
 }
 
-test('downloads the lightbox image as <Owner>_<photo-id>.jpg', async ({ page, serviceWorker, imageServer }) => {
+test('downloads the lightbox image as <Owner>_<Title>_<photo-id>.jpg', async ({ page, serviceWorker, imageServer }) => {
   await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` }));
 
   const result = await clickAction(serviceWorker);
@@ -525,6 +527,18 @@ test('the context menu on a lightbox saves the same file as the toolbar click', 
   expect(menuResult.filename).toBe(`${EXPECTED_STEM}.jpg`);
   expect({ url: menuResult.url, filename: menuResult.filename })
     .toEqual({ url: toolbarResult.url, filename: toolbarResult.filename });
+});
+
+test('a lightbox photo with the placeholder title "..." keeps <Owner>_<photo-id>.jpg via menu and toolbar', async ({ page, serviceWorker, imageServer }) => {
+  await serve(page, LIGHTBOX_URL, await fixture('lightbox.html', {
+    __IMAGE_URL__: `${imageServer.base}/image.webp`, [LIGHTBOX_TITLE]: PLACEHOLDER_TITLE,
+  }));
+
+  const menuResult = await saveHiddenImageAt(page, serviceWorker, await centerOf(page, '.slide_active img.secure_image'));
+  const toolbarResult = await clickAction(serviceWorker);
+
+  expect(menuResult.filename).toBe('TestOwner_1001.jpg');
+  expect(toolbarResult.filename).toBe('TestOwner_1001.jpg');
 });
 
 test('the context menu on a spot without an image shows the red badge and saves a log', async ({ page, serviceWorker }) => {

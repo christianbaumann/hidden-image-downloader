@@ -342,6 +342,14 @@ describe('handleActionClick', () => {
     assert.deepEqual(result, { url: JPG_URL, filename: options.filename, downloadId: DOWNLOAD_ID });
   });
 
+  test('puts the lightbox title into the filename', async () => {
+    extracted.extractLightboxData = { ...VALID_DATA, title: 'Rück Ansicht' };
+
+    const result = await handleActionClick(FEED_TAB);
+
+    assert.equal(result.filename, 'Rück_-Owner_Rück-Ansicht_1001.jpg');
+  });
+
   test('a non-profile JoyClub URL with a lightbox downloads the single image', async () => {
     const result = await handleActionClick(FEED_TAB);
 
@@ -1362,6 +1370,15 @@ describe('"Save hidden image" context menu', () => {
     assert.deepEqual(result, { url: JPG_URL, filename: 'TestOwner_1001.jpg', downloadId: DOWNLOAD_ID });
     assert.equal(callsNamed('executeScript').length, 0);
     assert.equal(logDownloads().length, 0);
+  });
+
+  test('puts the lightbox title of the image layer into the filename', async () => {
+    const [overlay, image] = HIDDEN_IMAGE.layers;
+    tabMessage = async () => ({ ...HIDDEN_IMAGE, layers: [overlay, { ...image, title: 'Rück Ansicht' }] });
+
+    const result = await handleMenuClick(MENU_INFO, MENU_TAB);
+
+    assert.equal(result.filename, 'TestOwner_Rück-Ansicht_1001.jpg');
   });
 
   test('falls back to the webp when the jpg probe fails', async () => {

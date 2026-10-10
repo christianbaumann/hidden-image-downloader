@@ -230,6 +230,27 @@ test('buildFilename drops the album part when title or position is unusable', ()
   }
 });
 
+test('buildFilename puts a photo title before the id', () => {
+  assert.equal(buildFilename({ owner: 'Owner', title: 'Rück Ansicht', photoId: '1001', url: IMAGE_URL }), 'Owner_Rück-Ansicht_1001.webp');
+  assert.equal(
+    buildFilename({ owner: 'O', title: 'Rück Ansicht', album: 'A', position: 2, count: 5, photoId: 'k', url: IMAGE_URL }),
+    'O_A_02_Rück-Ansicht_k.webp',
+  );
+});
+
+test('buildFilename leaves out a placeholder, empty or missing title', () => {
+  for (const title of ['...', 'Profilbild', '', '   ', null, undefined]) {
+    assert.equal(buildFilename({ owner: 'O', title, photoId: 'k', url: IMAGE_URL }), 'O_k.webp', JSON.stringify(title));
+  }
+});
+
+test('buildFilename cuts a long title to stay within the byte cap', () => {
+  const name = buildFilename({ owner: 'O', title: '😀'.repeat(80), album: '写真'.repeat(40), position: 1, count: 1, photoId: 'k', url: IMAGE_URL });
+
+  assert.ok(bytes(name) <= MAX_FILENAME_BYTES);
+  assert.match(name, /^O_(写真)+写?_01_(😀)*_?k\.webp$/u);
+});
+
 test('buildFilename falls back to unknown owner and image', () => {
   assert.equal(buildFilename({ owner: '', photoId: null, url: IMAGE_URL }), 'unknown_image.webp');
 });

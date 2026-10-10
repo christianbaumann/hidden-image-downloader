@@ -16,7 +16,7 @@ const ALBUM_LINKS = [
   '/profile/fotoalbum/1000001.testowner.html#media_id_0_3003_x',
 ];
 const NONE = {
-  backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', src: '', photoId: null, linkIndex: -1, owner: '', userName: '', gated: false,
+  backgroundImage: 'none', backgroundColor: 'rgba(0, 0, 0, 0)', srcset: '', src: '', photoId: null, linkIndex: -1, owner: '', title: '', userName: '', gated: false,
 };
 const OVERLAY_GIF = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
@@ -143,6 +143,33 @@ describe('toHiddenImageCandidates', () => {
     };
 
     assert.equal(toHiddenImageCandidates(raw)[0].filename, 'SlideOwner_1001.jpg');
+  });
+
+  test('puts the lightbox title of the image layer into the name', () => {
+    const raw = {
+      pageUrl: PAGE_URL,
+      layers: [layer({ title: 'Rück Ansicht' }), layer({ backgroundImage: 'url("https://x/a.jpg")', photoId: '1001', owner: 'SlideOwner', title: 'Rück Ansicht' })],
+    };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].filename, 'SlideOwner_Rück-Ansicht_1001.jpg');
+  });
+
+  test('a placeholder lightbox title keeps the name without title', () => {
+    const raw = { pageUrl: PAGE_URL, layers: [layer({ backgroundImage: 'url("https://x/a.jpg")', photoId: '1001', owner: 'SlideOwner', title: '...' })] };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].filename, 'SlideOwner_1001.jpg');
+  });
+
+  test('a titled album card is named like its titled ZIP entry', () => {
+    const raw = {
+      pageUrl: ALBUM_PAGE_URL,
+      owner: 'TestOwner',
+      album: 'Fotos von uns',
+      albumLinks: ALBUM_LINKS,
+      layers: [layer({ backgroundImage: `url("${JPG_URL}")`, linkIndex: 1, title: 'Rück Ansicht' })],
+    };
+
+    assert.equal(toHiddenImageCandidates(raw)[0].filename, 'TestOwner_Fotos-von-uns_02_Rück-Ansicht_00000002.jpg');
   });
 
   test('a backdrop without image hides the photos below it', () => {
