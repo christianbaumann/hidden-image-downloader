@@ -6,7 +6,7 @@ tags: [research, profile-videos, hls, cloudfront]
 
 # Research 09: profile videos
 
-Live session, 2026-10-09 (playwright-cli, user's cookies, scratchpad only, FSK18 unlocked: `body[data-session-fsk18-status="1"]`). One member profile with 13 videos, recorded with `page.on('request')`/`page.on('response')` while opening the lightbox and pressing play; then the same calls were sent by hand from the page. Ids, GUIDs and titles below are synthetic.
+Live session, 2026-10-09 (playwright-cli, user's cookies, scratchpad only, FSK18 unlocked: `body[data-session-fsk18-status="1"]`); locked session 2026-10-10, see "Locked FSK18 session". One member profile with 13 videos, recorded with `page.on('request')`/`page.on('response')` while opening the lightbox and pressing play; then the same calls were sent by hand from the page. Ids, GUIDs and titles below are synthetic.
 
 ## Result
 
@@ -54,7 +54,17 @@ Media playlist: `#EXT-X-PLAYLIST-TYPE:VOD`, `#EXTINF:4,` + `<name>_00001.ts` …
 - Playback sequence on JoyClub: `video/lightbox/list` → `video/lightbox/data` → `POST /aws/track/watch` (counts a view; the extension should not call it) → `GET /aws/aws_signed_cookies` → master → media playlist → segments.
 - The signed cookies are per video (policy resource `https://uservideo.joyclub.de/<guid>/hls/*`, condition `DateLessThan` only) and expire after ~20 min. Fetches from the page (`credentials: 'include'`) to `uservideo.joyclub.de` pass CORS; `page.request` with the cookies got segment 200 (`AmazonS3`).
 - An offscreen document cannot use `document.cookie` for `joyclub.de`; it would need the `cookies` permission (`chrome.cookies.set`), or the fetches run in the tab like `fetchProfileAlbums`.
-- The sample cards carry an "Um Freischaltung bitten" overlay (`.profile-media-item-access-request-overlay`) and `is_fsk18_blurred: true` in the card JSON, yet `lightbox/data` returned `media_fsk18_blurred: false` and a playable source for all 13 videos in the unlocked session. Locked sessions and owner-restricted videos were not tested.
+- The sample cards carry an "Um Freischaltung bitten" overlay (`.profile-media-item-access-request-overlay`) and `is_fsk18_blurred: true` in the card JSON, yet `lightbox/data` returned `media_fsk18_blurred: false` and a playable source for all 13 videos in the unlocked session. Owner-restricted videos were not tested.
+
+### Locked FSK18 session
+
+Same profile, 2026-10-10, fresh cookies of a session with `body[data-session-fsk18-status="0"]`:
+
+- `lightbox/list` still lists all 13 videos.
+- `lightbox/data` answers every video with `media_fsk18_blurred: true` and a `media_html` without `data-video`: no playlist URL. `data-cookie-config` (with the GUID) is still there.
+- Slider thumbnails come from `<guid>/thumbnails/pxl/<id>_tumb.<n>.jpg` (pixelated), like the `image_180_pxl_` photos.
+- Not tried: requesting signed cookies or building `<guid>/hls/<id>.m3u8` by hand while locked. That would bypass JoyClub's FSK18 activation, which the extension deliberately does not do (`CLAUDE.md`, gated photos).
+- Consequence: a video without `data-video` cannot be downloaded; task 10 lists it in `skipped.txt` (e.g. `Videos: <n> not available (FSK18 locked)`). Task 12's unlock check would make them downloadable.
 - A profile without videos: `lightbox/list` answers `media_key_list: []`.
 
 ## Consequence for task 10

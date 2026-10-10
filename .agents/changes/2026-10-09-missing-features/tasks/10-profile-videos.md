@@ -24,7 +24,7 @@ Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP:
 * [ ] Map videos to entries in a reserved `Videos` folder (unique against album names, like `ClubMail`)
 * [ ] Fetch the highest rendition's playlist and segments (per-video CloudFront cookies from `/aws/aws_signed_cookies`; never call `/aws/track/watch`)
 * [ ] Remux the TS segments to mp4 with `mux.js`, vendored in `vendor/` and pinned to the npm devDependency like JSZip
-* [ ] Encrypted (`EXT-X-KEY`) or unplayable videos → `Videos: <n> not supported (<reason>)` in `skipped.txt`
+* [ ] Encrypted (`EXT-X-KEY`) or unplayable videos → `Videos: <n> not supported (<reason>)` in `skipped.txt`; in a locked FSK18 session `lightbox/data` has no `data-video` → `Videos: <n> not available (FSK18 locked)`, no bypass
 * [ ] Videos count in the progress badge and the incremental record (task 06, if done)
 * [ ] Synthetic fixtures, unit tests for mapping and the skip line, E2E for a profile with one video
 * [ ] README and `CLAUDE.md` describe `Videos/`
