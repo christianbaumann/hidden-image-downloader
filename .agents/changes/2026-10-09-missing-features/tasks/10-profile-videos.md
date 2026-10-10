@@ -6,7 +6,7 @@ dependencies:
 
 # Task 10: Profile videos in Videos/
 
-**Status:** Done (2026-10-10), verified live; awaiting approval and the QuickTime check. Fetch path: the tab gets list, sources and per-video CloudFront values; the offscreen document fetches the stream with them as signed-URL query (no cookies) and remuxes with mux.js (`design.md#j-videos`).
+**Status:** In progress (2026-10-10). Not approved: the user's QuickTime check failed (no picture); fixed (see "QuickTime fix"). Open: the user's answers below. Fetch path: the tab gets list, sources and per-video CloudFront values; the offscreen document fetches the stream with them as signed-URL query (no cookies) and remuxes with mux.js (`design.md#j-videos`).
 
 Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP: JoyClub's unencrypted HLS is fetched (highest rendition) and remuxed to mp4; encrypted or unplayable videos are listed in `skipped.txt`.
 
@@ -53,3 +53,17 @@ Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP:
 
 * Fixed: unsupported video never recorded → red badge on every later click; a mux.js exception failed the whole ZIP (now only that video, `remux failed`); a partial `cookie_list` gave a broken query (now "not available"); version-1 box offsets dropped (mux.js writes version 0); the `zip:` log line counts unsupported videos; tests for no segments, mux.js throw, partial signed values.
 * Left as is, for the user to decide: signed values expire after ~20 min, so on a very large profile late videos can land in `missing.txt`; up to 5 videos are held in memory at once; a failed video list only adds a `skipped.txt` line (no amber badge, unlike ClubMail); fMP4 or byte-range HLS would end in `missing.txt` (never seen live); badge texts still say "photos" while counting videos too.
+
+## QuickTime fix (2026-10-10)
+
+* User: the downloaded videos did not play. AVFoundation (`AVAssetReader` per track) read 0 video frames and only the sound from every mux.js output, including the fixture; ffprobe, ffmpeg and VLC played them, so the tests had not caught it. An ffmpeg `-c copy` of the same file decoded, so the cause was the container. Bisecting the box differences: mux.js writes sequence number 0 into every `mfhd`, and AVFoundation reads only the first `moof` (audio first, then video). `remuxToMp4` now numbers the fragments 1, 2, …
+* **Note:** Verified via `tests/unit/hls.test.js` › "numbers the movie fragments 1, 2, …"; QuickTime and VLC screenshots of a synthetic 20 s clip (test pattern visible, VLC shows the right length without `mehd`); live: all 13 videos of the profile named by the user decode to the end in AVFoundation with picture and sound (e.g. 564 frames to 18.9 s).
+* Files saved before the fix are recorded as saved: the user needs "Download everything again" to replace them.
+
+## User answers (2026-10-10)
+
+* [ ] Expired signed values: build the videos before the photos, and on a 403 ask the tab for fresh values and retry (1a + retry)
+* [ ] Memory: leave as is (2c)
+* [ ] Video list failure: amber badge "videos unavailable (<reason>)" and `log.txt` in the ZIP, like ClubMail (3a)
+* [ ] Badge and tooltip texts: "files" instead of "photos" (4a)
+* [ ] Support fMP4 (`EXT-X-MAP`) and byte-range (`EXT-X-BYTERANGE`) HLS properly (5b)

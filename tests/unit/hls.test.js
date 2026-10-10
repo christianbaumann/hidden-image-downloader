@@ -128,6 +128,17 @@ describe('remuxToMp4', () => {
     assert.deepEqual(moovDurations(mp4), [['mvhd', 0], ['tkhd', 0], ['mdhd', 0], ['tkhd', 0], ['mdhd', 0]]);
   });
 
+  test('numbers the movie fragments 1, 2, … so AVFoundation reads every track, not only the first fragment', () => {
+    const mp4 = remuxToMp4(SEGMENT_NAMES.map(segmentBytes), muxjs);
+    const view = new DataView(mp4.buffer, mp4.byteOffset, mp4.byteLength);
+    const sequences = [];
+    for (let offset = 0; offset < mp4.length; offset += view.getUint32(offset)) {
+      if (boxType(mp4, offset) === 'moof') sequences.push(view.getUint32(offset + 8 + FULL_BOX_HEADER));
+    }
+
+    assert.deepEqual(sequences, [1, 2]);
+  });
+
   test('is null for bytes that are no TS', () => {
     assert.equal(remuxToMp4([new Uint8Array([1, 2, 3]).buffer], muxjs), null);
   });
