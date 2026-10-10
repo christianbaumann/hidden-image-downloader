@@ -17,16 +17,18 @@ dependencies:
 
 ## Work
 
+* [ ] Live check: one single profile (partner fields `null`?), a profile with `bodySize`/`cupSize`/`clothSize`/`shoeSize` set, the gender in the page's embedded data, the English labels next to the de-DE ones; record in `research-02-sed-card.md`
+* [ ] Translation module with de-DE and English tables, chosen by page language (German fallback); person labels "Sie"/"Er" from the page data, else "Person 1"/"Person 2"
 * [ ] Fetch: `loadSedCard(token)` in the `Promise.all` of `loadAlbums`, `null` on any failure
 * [ ] Render `## Steckbrief` and `## Vorlieben` between "Profile text" and "Albums" in both reports (escaped like the other sections)
 * [ ] Fold the data into the `profileTextHash` input
 * [ ] Unit tests (data, `null`, escaping, fingerprint change) and E2E routing for the new operation
 * [ ] Update `README.md` and `CLAUDE.md`
-* [ ] Alternative when task 06 found no source: add the note to `.agents/backlog.md` and close this task
 
 ## Verification
 
 * [ ] A profile ZIP's `profile.md`/`profile.html` list Steckbrief and Vorlieben as readable text
+* [ ] An English page gives English labels; a single profile shows one person
 * [ ] A failing sed card call leaves the sections out and does not fail the ZIP
 * [ ] A changed sed card alone gives an incremental ZIP with the profile files
 * [ ] `npm test` and `npm run test:e2e` pass

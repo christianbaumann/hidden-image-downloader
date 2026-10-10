@@ -76,7 +76,7 @@ No title, or a placeholder title: the name stays as today.
 
 ```text
 title ─► NFC ─► sanitizeSegment (forbidden chars, whitespace → '-', edge trim)
-      ─► cap 80 code points ─► Windows device name suffix ─► titleSegment
+      ─► cap 80 code points ─► titleSegment
 whole name ─► cap 200 UTF-8 bytes: cut title first, then album; never owner, nn, id, ext
 ```
 
@@ -133,7 +133,15 @@ Details: `research-02-sed-card.md`. Approach for task 07: API + static translati
 - Fetch: `getProfileSedCardDataByUserId` (`userId: Int!`, query in research-02) in `fetchProfileAlbums`, in parallel with the album list like `getProfileDescriptionByUserId`; answers the raw `profileDescription.byUserId` result, `null` on any failure or a non-`ProfileDescription` result. Works on album pages (checked by hand), which have no sed card in the DOM.
 - Translate: a pure `lib/` module holds the de-DE tables copied from JoyClub's bundle (field labels, property values, 6 ratings, 66 preference keys) and maps the raw result; an unknown key or value stays as the raw enum string. `height`/`weight` as `<n> cm`/`<n> kg`; `null` fields left out.
 - Render: per person (owner, then partner on couples) the properties, then "Vorlieben" grouped by rating in JoyClub's order (Unbedingt, Steh ich drauf, Situationsabhängig, Mag ich nicht so, Geht gar nicht, Möchte ich gerne ausprobieren), labels sorted with `localeCompare('de')`; `NONE` left out.
-- Not available from the API: age and gender (the card's "34 Jahre" and "(Sie)/(Er)"). Task 07 labels the persons without them.
+- Not available from the API: age and gender (the card's "34 Jahre" and "(Sie)/(Er)").
+
+Answers to the open questions (2026-10-10):
+
+- Person labels: read the gender from the data embedded in the profile page's HTML when present ("Sie"/"Er"), else "Person 1"/"Person 2". Never guess.
+- Single profiles: check one live at the start of task 07; with `null` partner fields the report shows one person.
+- `bodySize`, `cupSize`, `clothSize`, `shoeSize`: find a profile with them set during the task 07 live check and add labels; until then the raw value.
+- Language: German and English tables. Task 07 captures the English labels live (en locale of JoyClub's bundle) next to the de-DE ones and picks the table by the page language (`<html lang>`), German as fallback.
+- Request: a separate `getProfileSedCardDataByUserId` call, as JoyClub does; its failure leaves out only the two sections.
 
 ## Key Decisions
 
@@ -175,7 +183,7 @@ Details: `research-02-sed-card.md`. Approach for task 07: API + static translati
 
 ### Cross-platform sanitising, links encoded
 
-- **Decision:** Titles use the `folderSegment` rules (forbidden chars `<>:"/\|?*`, control and `\p{Cf}` chars, edge trim incl. trailing dots and spaces, Windows device names, NFC). `#`, `%`, `&` stay in the name; report links percent-encode them.
+- **Decision:** Titles use the `folderSegment` rules (forbidden chars `<>:"/\|?*`, control and `\p{Cf}` chars, edge trim incl. trailing dots and spaces, NFC), but no Windows device-name suffix: a title is never the whole name (owner and id surround it), and the suffix only gave `nul__<id>` (changed 2026-10-10 after task 02). `#`, `%`, `&` stay in the name; report links percent-encode them.
 - **Reason:** The name must work on macOS, Windows and Linux; those three characters are legal on all of them.
 - **Trade-offs:** The link encoding needs its own tests in `profile-report.test.js`.
 
@@ -205,6 +213,6 @@ Details: `research-02-sed-card.md`. Approach for task 07: API + static translati
 
 ### Steckbrief and Vorlieben from the API with a static translation table
 
-- **Decision:** Task 07 fetches `getProfileSedCardDataByUserId` in `fetchProfileAlbums` and translates the enums with a static de-DE table in a pure `lib/` module; unknown values stay raw.
+- **Decision:** Task 07 fetches `getProfileSedCardDataByUserId` in `fetchProfileAlbums` and translates the enums with static de-DE and English tables in a pure `lib/` module, chosen by page language; unknown values stay raw.
 - **Reason:** The album path also runs on `/profile/fotos/…` and `/profile/fotoalbum/…`, which have no sed card in the DOM; the API answers there. JoyClub's labels exist only in hashed, per-release bundle files, so they can't be loaded at runtime by a stable URL.
-- **Trade-offs:** Rejected rendered DOM text (profile page only, render wait, Lit shadow roots, duplicated desktop/mobile cards) and loading the bundle at runtime (hashed file names, minified mapping). The table is German only and needs an update when JoyClub adds options; new keys show as raw enum strings until then.
+- **Trade-offs:** Rejected rendered DOM text (profile page only, render wait, Lit shadow roots, duplicated desktop/mobile cards) and loading the bundle at runtime (hashed file names, minified mapping). The tables need an update when JoyClub adds options; new keys show as raw enum strings until then.

@@ -124,7 +124,7 @@ describe('toAlbumZipRequest', () => {
     assert.deepEqual(request.entries.map(({ name }) => name), [
       `Fotos-von-uns/TestOwner_Fotos-von-uns_01_Rück-Ansicht_${keyOf(1)}.jpg`,
       `A/TestOwner_A_01_#1_-100%-&-mehr_${keyOf(2)}.jpg`,
-      `A/TestOwner_A_02_nul__${keyOf(3)}.jpg`,
+      `A/TestOwner_A_02_nul_${keyOf(3)}.jpg`,
     ]);
   });
 

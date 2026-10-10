@@ -185,11 +185,11 @@ test('photoStem leaves a name within the cap unchanged', () => {
   assert.equal(photoStem({ owner: 'O', folder, number: '03', title, key: 'k', extension: 'jpg' }), `O_${folder}_03_${title}_k`);
 });
 
-test('titleSegment uses the folder rules', () => {
+test('titleSegment uses the folder rules without the device-name suffix', () => {
   assert.equal(titleSegment('Rück Ansicht'), 'Rück-Ansicht');
   assert.equal(titleSegment('Mu\u0308nchen'), 'M\u00FCnchen');
   assert.equal(titleSegment('a<b>c:d"e/f\\g|h?i*j\u0007k\u200Dl. '), 'a_b_c_d_e_f_g_h_i_j_k_l');
-  assert.equal(titleSegment('CON'), 'CON_');
+  assert.equal(titleSegment('CON'), 'CON');
   assert.equal(titleSegment(null), '');
 });
 
