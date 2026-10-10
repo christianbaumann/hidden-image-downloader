@@ -6,8 +6,9 @@ import { FETCH_CONCURRENCY, FETCH_RETRIES, RETRY_BASE_DELAY_MS, buildZip, isRetr
 import { MISSING_REPORT_NAME, SKIPPED_REPORT_NAME } from '../../lib/profile.js';
 import { ZIP_LOG_NAME } from '../../lib/log.js';
 import {
-  ENCRYPTED_MEDIA_PLAYLIST, MEDIA_PLAYLIST, SEGMENT_NAMES, SIGNED_QUERY, VIDEO_ID_1, masterPlaylist, masterUrlOf,
-  segmentBytes, variantNameOf,
+  BYTERANGE_FILE, BYTERANGE_MEDIA_PLAYLIST, ENCRYPTED_MEDIA_PLAYLIST, FMP4_FILES, FMP4_MEDIA_PLAYLIST, MEDIA_PLAYLIST,
+  SEGMENT_NAMES, SIGNED_QUERY, VIDEO_ID_1, byteRangeBytes, fmp4Bytes, masterPlaylist, masterUrlOf, segmentBytes, signedAnswer,
+  signingUrlOf, variantNameOf,
 } from '../fixtures/video-api.js';
 
 const URL_A = 'https://img.example/a.jpg';
@@ -405,7 +406,13 @@ describe('buildZip videos', () => {
   const MASTER_URL = masterUrlOf(VIDEO_ID_1);
   const HLS_DIR = MASTER_URL.slice(0, MASTER_URL.lastIndexOf('/') + 1);
   const BEST_VARIANT = `${HLS_DIR}${variantNameOf(VIDEO_ID_1, 854)}`;
-  const VIDEO_ENTRY = { url: MASTER_URL, name: `Videos/O_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY } };
+  const SIGNING_URL = signingUrlOf(VIDEO_ID_1);
+  const VIDEO_ENTRY = {
+    url: MASTER_URL, name: `Videos/O_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY, signing: SIGNING_URL },
+  };
+  const FRESH = { 'CloudFront-Policy': 'policy-2', 'CloudFront-Signature': 'signature-2', 'CloudFront-Key-Pair-Id': 'KEYPAIR1' };
+  const FRESH_QUERY = 'Policy=policy-2&Signature=signature-2&Key-Pair-Id=KEYPAIR1';
+  const jsonResponse = (body) => ({ ok: true, status: 200, json: async () => body });
   const signed = (url) => `${url}?${SIGNED_QUERY}`;
   const textResponse = (text) => okResponse(new TextEncoder().encode(text));
 
@@ -507,6 +514,86 @@ describe('buildZip videos', () => {
     assert.deepEqual(missing, [MASTER_URL]);
     assert.equal(logLines.at(-1).reason, 'remux failed');
   });
+
+  it('fetches the videos before the photos and keeps the entry order in the ZIP', async () => {
+    const { fetch, calls } = stubFetch({ ...videoResponses(), [URL_A]: okResponse(BYTES_A) });
+
+    await buildZip([ENTRIES[0], VIDEO_ENTRY], { JSZip, muxjs, fetch, limit: 1 });
+
+    assert.equal(calls[0].url, signed(MASTER_URL));
+    assert.equal(calls.at(-1).url, URL_A);
+  });
+
+  it('expired parameters (403) are renewed once via the signing URL, and the rest of the video uses them', async () => {
+    const fresh = (url) => `${url}?${FRESH_QUERY}`;
+    const segmentUrls = SEGMENT_NAMES.map((name) => `${HLS_DIR}${name}`);
+    const { fetch, calls } = stubFetch({
+      [signed(MASTER_URL)]: textResponse(masterPlaylist(VIDEO_ID_1)),
+      [signed(BEST_VARIANT)]: textResponse(MEDIA_PLAYLIST),
+      [signed(segmentUrls[0])]: { ok: false, status: HTTP_FORBIDDEN },
+      [SIGNING_URL]: jsonResponse(signedAnswer(FRESH)),
+      ...Object.fromEntries(segmentUrls.map((url, index) => [fresh(url), okResponse(segmentBytes(SEGMENT_NAMES[index]))])),
+    });
+
+    const { added, logLines } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+    assert.equal(added, 1);
+    assert.deepEqual(calls.slice(2).map(({ url }) => url), [signed(segmentUrls[0]), SIGNING_URL, fresh(segmentUrls[0]), fresh(segmentUrls[1])]);
+    assert.equal(calls[3].options.credentials, 'include');
+    assert.deepEqual(logLines.map(({ step }) => step), ['video: re-signed']);
+  });
+
+  it('a 403 that fresh parameters do not fix makes the video missing', async () => {
+    const segment = signed(`${HLS_DIR}${SEGMENT_NAMES[0]}`);
+    const { fetch } = stubFetch({
+      ...videoResponses(), [segment]: { ok: false, status: HTTP_FORBIDDEN }, [SIGNING_URL]: { ok: false, status: HTTP_SERVER_ERROR },
+    });
+
+    const { missing, logLines } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs, fetch, delay: noDelay });
+
+    assert.deepEqual(missing, [MASTER_URL]);
+    assert.deepEqual(logLines.map(({ step, status }) => `${step} ${status}`), [`video: missing ${HTTP_FORBIDDEN}`]);
+  });
+
+  it('joins an fMP4 stream (EXT-X-MAP) without remuxing', async () => {
+    const { fetch, calls } = stubFetch({
+      [signed(MASTER_URL)]: textResponse(masterPlaylist(VIDEO_ID_1)),
+      [signed(BEST_VARIANT)]: textResponse(FMP4_MEDIA_PLAYLIST),
+      ...Object.fromEntries(FMP4_FILES.map((name) => [signed(`${HLS_DIR}${name}`), okResponse(fmp4Bytes(name))])),
+    });
+
+    const { blob, added } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs: null, fetch });
+
+    assert.equal(added, 1);
+    assert.deepEqual(calls.slice(2).map(({ url }) => url), FMP4_FILES.map((name) => signed(`${HLS_DIR}${name}`)));
+    const mp4 = await (await readZip(blob)).file(VIDEO_ENTRY.name).async('uint8array');
+    assert.equal(mp4.length, FMP4_FILES.reduce((length, name) => length + fmp4Bytes(name).length, 0));
+  });
+
+  for (const [label, answer] of [
+    ['answers 206 with the range', (bytes, start, end) => ({ ok: true, status: 206, arrayBuffer: async () => bytes.slice(start, end + 1).buffer })],
+    ['ignores the range and answers the whole file', (bytes) => ({ ok: true, status: 200, arrayBuffer: async () => bytes.slice().buffer })],
+  ]) {
+    it(`fetches EXT-X-BYTERANGE parts with a Range header when the server ${label}`, async () => {
+      const file = new Uint8Array(byteRangeBytes());
+      const ranges = [];
+      const { fetch: base } = stubFetch({
+        [signed(MASTER_URL)]: textResponse(masterPlaylist(VIDEO_ID_1)),
+        [signed(BEST_VARIANT)]: textResponse(BYTERANGE_MEDIA_PLAYLIST),
+      });
+      const fetch = async (url, options) => {
+        if (url !== signed(`${HLS_DIR}${BYTERANGE_FILE}`)) return base(url, options);
+        const [, start, end] = /bytes=(\d+)-(\d+)/.exec(options.headers.Range).map(Number);
+        ranges.push([start, end]);
+        return answer(file, start, end);
+      };
+
+      const { added } = await buildZip([VIDEO_ENTRY], { JSZip, muxjs, fetch });
+
+      assert.equal(added, 1);
+      assert.deepEqual(ranges, [[0, 9023], [9024, 16919]]);
+    });
+  }
 
   it('a media playlist served as the source is used directly', async () => {
     const { fetch } = stubFetch({

@@ -1,9 +1,10 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import muxjs from 'mux.js';
-import { bestVariant, parseMasterPlaylist, parseMediaPlaylist, remuxToMp4, withQuery } from '../../lib/hls.js';
+import { bestVariant, isMp4, joinFragments, parseMasterPlaylist, parseMediaPlaylist, remuxToMp4, withQuery } from '../../lib/hls.js';
 import {
-  ENCRYPTED_MEDIA_PLAYLIST, MEDIA_PLAYLIST, SEGMENT_NAMES, VIDEO_ID_1, masterPlaylist, masterUrlOf, segmentBytes, variantNameOf,
+  BYTERANGE_FILE, BYTERANGE_MEDIA_PLAYLIST, ENCRYPTED_MEDIA_PLAYLIST, FMP4_FILES, FMP4_MEDIA_PLAYLIST, MEDIA_PLAYLIST, SEGMENT_NAMES,
+  VIDEO_ID_1, byteRangeBytes, fmp4Bytes, masterPlaylist, masterUrlOf, segmentBytes, variantNameOf,
 } from '../fixtures/video-api.js';
 
 const MASTER_URL = masterUrlOf(VIDEO_ID_1);
@@ -82,7 +83,30 @@ describe('bestVariant', () => {
 describe('parseMediaPlaylist', () => {
   test('lists the segments as absolute URLs, unencrypted', () => {
     assert.deepEqual(parseMediaPlaylist(MEDIA_PLAYLIST, `${HLS_DIR}media.m3u8`), {
-      segments: SEGMENT_NAMES.map((name) => `${HLS_DIR}${name}`),
+      segments: SEGMENT_NAMES.map((name) => ({ url: `${HLS_DIR}${name}` })),
+      map: null,
+      encrypted: false,
+    });
+  });
+
+  test('reads the EXT-X-MAP init section of an fMP4 stream', () => {
+    const [init, ...segments] = FMP4_FILES;
+    assert.deepEqual(parseMediaPlaylist(FMP4_MEDIA_PLAYLIST, `${HLS_DIR}media.m3u8`), {
+      segments: segments.map((name) => ({ url: `${HLS_DIR}${name}` })),
+      map: { url: `${HLS_DIR}${init}` },
+      encrypted: false,
+    });
+  });
+
+  test('reads EXT-X-BYTERANGE parts, also without an offset, and a map with a byte range', () => {
+    const url = `${HLS_DIR}${BYTERANGE_FILE}`;
+    assert.deepEqual(parseMediaPlaylist(BYTERANGE_MEDIA_PLAYLIST, `${HLS_DIR}media.m3u8`).segments, [
+      { url, range: { start: 0, end: 9023 } }, { url, range: { start: 9024, end: 16919 } },
+    ]);
+    const text = '#EXTM3U\n#EXT-X-MAP:URI="all.mp4",BYTERANGE="100@0"\n#EXT-X-BYTERANGE:50@100\nall.mp4\n#EXT-X-BYTERANGE:30\nall.mp4\n';
+    assert.deepEqual(parseMediaPlaylist(text, `${HLS_DIR}media.m3u8`), {
+      segments: [{ url: `${HLS_DIR}all.mp4`, range: { start: 100, end: 149 } }, { url: `${HLS_DIR}all.mp4`, range: { start: 150, end: 179 } }],
+      map: { url: `${HLS_DIR}all.mp4`, range: { start: 0, end: 99 } },
       encrypted: false,
     });
   });
@@ -139,7 +163,41 @@ describe('remuxToMp4', () => {
     assert.deepEqual(sequences, [1, 2]);
   });
 
+  test('remuxes TS parts cut from one file by byte range', () => {
+    const file = byteRangeBytes();
+    const { segments } = parseMediaPlaylist(BYTERANGE_MEDIA_PLAYLIST, `${HLS_DIR}media.m3u8`);
+    const mp4 = remuxToMp4(segments.map(({ range }) => file.subarray(range.start, range.end + 1)), muxjs);
+
+    assert.deepEqual(topLevelBoxes(mp4).slice(0, 2), ['ftyp', 'moov']);
+  });
+
   test('is null for bytes that are no TS', () => {
     assert.equal(remuxToMp4([new Uint8Array([1, 2, 3]).buffer], muxjs), null);
+  });
+});
+
+describe('isMp4', () => {
+  test('tells an fMP4 init section from TS bytes', () => {
+    assert.equal(isMp4(fmp4Bytes('init.mp4')), true);
+    assert.equal(isMp4(segmentBytes(SEGMENT_NAMES[0])), false);
+    assert.equal(isMp4(new Uint8Array(3).buffer), false);
+  });
+});
+
+describe('joinFragments', () => {
+  test('joins init section and fMP4 segments into one mp4 with numbered fragments and zero durations', () => {
+    const [init, ...segments] = FMP4_FILES.map(fmp4Bytes);
+
+    const mp4 = joinFragments(init, segments);
+
+    assert.equal(mp4.length, [init, ...segments].reduce((length, part) => length + part.length, 0));
+    assert.deepEqual(topLevelBoxes(mp4).slice(0, 2), ['ftyp', 'moov']);
+    assert.ok(moovDurations(mp4).every(([, duration]) => duration === 0));
+    const view = new DataView(mp4.buffer, mp4.byteOffset, mp4.byteLength);
+    const sequences = [];
+    for (let offset = 0; offset < mp4.length; offset += view.getUint32(offset)) {
+      if (boxType(mp4, offset) === 'moof') sequences.push(view.getUint32(offset + 8 + FULL_BOX_HEADER));
+    }
+    assert.deepEqual(sequences, [1, 2]);
   });
 });

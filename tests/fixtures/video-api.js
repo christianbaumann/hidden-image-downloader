@@ -15,7 +15,11 @@ export const SIGNED_COOKIES = {
   'CloudFront-Key-Pair-Id': SIGNED['Key-Pair-Id'],
 };
 
+export const JOYCLUB_ORIGIN = 'https://www.joyclub.de';
 export const guidOf = (id) => `00000000-0000-4000-8000-000000${id}`;
+const payloadOf = (id) => JSON.stringify({ guid: guidOf(id), contest_id: null, preview_mode: false });
+// The URL fetchProfileVideos builds from a video's data-cookie-config, for fresh signed values.
+export const signingUrlOf = (id) => `${JOYCLUB_ORIGIN}/aws/aws_signed_cookies?mode=user&payload=${encodeURIComponent(payloadOf(id))}`;
 export const masterUrlOf = (id) => `${VIDEO_ORIGIN}/${guidOf(id)}/hls/${id}.m3u8`;
 export const variantNameOf = (id, height) => `${id}OttHlsTsAvcAac_9x16_${height}p.m3u8`;
 
@@ -25,7 +29,7 @@ const attribute = (value) => JSON.stringify(value).replaceAll('/', '\\/').replac
 // One lightbox_data_list item; source: false gives the answer of a locked FSK18 session (no data-video).
 export function videoItem(id, { source = true, blurred = !source } = {}) {
   const guid = guidOf(id);
-  const config = { identifier: `user_${guid}`, modus: 'user', payload_json: JSON.stringify({ guid, contest_id: null, preview_mode: false }) };
+  const config = { identifier: `user_${guid}`, modus: 'user', payload_json: payloadOf(id) };
   const video = source ? ` data-video="${attribute({ video_source: masterUrlOf(id), autoplay: 'autoplay' })}"` : '';
   return {
     media_id: Number(id),
@@ -41,9 +45,9 @@ export const dataAnswer = (items) => ({
   status_code: 200,
   content: { lightbox_data_list: Object.fromEntries(items.map((item) => [String(item.media_id), item])) },
 });
-export const signedAnswer = () => ({
+export const signedAnswer = (cookies = SIGNED_COOKIES) => ({
   status_code: 200,
-  content: { cookie_list: SIGNED_COOKIES, domain: 'joyclub.de', path: '/', expires: 'Fri, 09 Oct 2026 17:53:20 GMT' },
+  content: { cookie_list: cookies, domain: 'joyclub.de', path: '/', expires: 'Fri, 09 Oct 2026 17:53:20 GMT' },
 });
 
 // The highest variant is listed first on purpose: the extension must pick by bandwidth, not by position.
@@ -65,6 +69,15 @@ const VIDEO_DIR = new URL('./video/', import.meta.url);
 export const SEGMENT_NAMES = ['seg_0.ts', 'seg_1.ts'];
 export const MEDIA_PLAYLIST = readFileSync(fileURLToPath(new URL('media.m3u8', VIDEO_DIR)), 'utf8');
 export const segmentBytes = (name) => readFileSync(fileURLToPath(new URL(name, VIDEO_DIR)));
+const fixtureText = (name) => readFileSync(fileURLToPath(new URL(name, VIDEO_DIR)), 'utf8');
+// tests/fixtures/video/fmp4: the same clip as fMP4 HLS (EXT-X-MAP init.mp4, seg_<n>.m4s).
+export const FMP4_MEDIA_PLAYLIST = fixtureText('fmp4/media.m3u8');
+export const FMP4_FILES = ['init.mp4', 'seg_0.m4s', 'seg_1.m4s'];
+export const fmp4Bytes = (name) => segmentBytes(`fmp4/${name}`);
+// tests/fixtures/video/byterange: the same clip as one TS file, its segments as EXT-X-BYTERANGE parts.
+export const BYTERANGE_MEDIA_PLAYLIST = fixtureText('byterange/media.m3u8');
+export const BYTERANGE_FILE = 'single.ts';
+export const byteRangeBytes = () => segmentBytes(`byterange/${BYTERANGE_FILE}`);
 export const ENCRYPTED_MEDIA_PLAYLIST = MEDIA_PLAYLIST.replace(
   '#EXT-X-PLAYLIST-TYPE:VOD', '#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"',
 );

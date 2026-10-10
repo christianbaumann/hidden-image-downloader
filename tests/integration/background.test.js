@@ -565,6 +565,28 @@ describe('profile ZIP', () => {
     assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable (HTTP 500)');
   });
 
+  test('a failed video list shows the amber warning with its reason and writes log.txt, the ZIP still downloads', async () => {
+    extracted.fetchProfileVideos = { failed: true, reason: 'HTTP 500' };
+
+    const result = await handleActionClick(PROFILE_TAB);
+
+    assert.equal(result.downloadId, ZIP_DOWNLOAD_ID);
+    const build = callsNamed('sendMessage').find(({ action }) => action === 'build-zip');
+    assert.equal(build.reports[0].text, 'Lady (9 photos): NEEDS_PERMISSION_BY_OWNER\nVideos: unavailable (HTTP 500)\n');
+    assert.equal(build.warning, true);
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: videos unavailable (HTTP 500)');
+  });
+
+  test('ClubMail and videos failing together name both on the badge', async () => {
+    extracted.fetchClubMailImages = { failed: true, reason: 'HTTP 500' };
+    executeScript = async ({ func }) => (func.name === 'fetchProfileVideos' ? [{ result: undefined }] : [{ result: extracted[func.name] }]);
+
+    await handleActionClick(PROFILE_TAB);
+
+    assert.equal(lastTitle(), 'Hidden Image Downloader: ClubMail unavailable (HTTP 500); videos unavailable (extension could not run on the page)');
+  });
+
   for (const [name, inject] of Object.entries({
     'a failing ClubMail injection': () => { throw new Error('Frame was removed'); },
     'a ClubMail injection without result': () => [{ result: undefined }],
@@ -586,7 +608,7 @@ describe('profile ZIP', () => {
 
     await handleActionClick(PROFILE_TAB);
 
-    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing; ClubMail unavailable (HTTP 500)');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 files missing; ClubMail unavailable (HTTP 500)');
   });
 
   test('builds the ZIP offscreen and downloads its blob URL', async () => {
@@ -691,7 +713,7 @@ describe('profile ZIP', () => {
     assert.deepEqual(result.missing, [missingUrl]);
     assert.equal(lastBadgeText(), '!');
     assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
-    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 files missing');
   });
 
   test('a successful click after a warning clears the badge', async () => {
@@ -962,13 +984,13 @@ describe('ZIP progress badge', () => {
     assert.equal(callsNamed('setTitle')[1].title, 'Hidden Image Downloader: loading album list, videos and ClubMail');
   });
 
-  test('photo progress shows the count and "n of m photos" in blue', async () => {
+  test('photo progress shows the count and "n of m files" in blue', async () => {
     buildWith(({ jobId }) => fireProgress(jobId, 1, 2));
 
     await handleActionClick(PROFILE_TAB);
 
     assert.ok(calls.some(([name, details]) => name === 'setBadgeText' && details.text === '1/2'));
-    assert.ok(callsNamed('setTitle').some(({ title }) => title === 'Hidden Image Downloader: 1 of 2 photos'));
+    assert.ok(callsNamed('setTitle').some(({ title }) => title === 'Hidden Image Downloader: 1 of 2 files'));
     assert.ok(callsNamed('setBadgeBackgroundColor').every(({ color }) => color === PROGRESS_COLOR));
   });
 
@@ -997,7 +1019,7 @@ describe('ZIP progress badge', () => {
 
     assert.equal(lastBadgeText(), '!');
     assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
-    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 photos missing');
+    assert.equal(lastTitle(), 'Hidden Image Downloader: 1 of 2 files missing');
   });
 
   test('two ZIP jobs at once update the badges of their own tabs only', async () => {
@@ -1507,6 +1529,17 @@ describe('incremental export', () => {
     assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
     assert.equal(lastTitle(), 'Hidden Image Downloader: nothing new; ClubMail unavailable (HTTP 500)');
     assert.match(logText(), /files: 0 of 2 new\n.*nothing new\n/s);
+  });
+
+  test('nothing new while the video list failed shows the amber warning and saves the log', async () => {
+    localStorageArea.items()[SAVED_KEY] = { photos: BOTH_PHOTOS, attachments: [] };
+    extracted.fetchProfileVideos = { failed: true, reason: 'timeout' };
+
+    assert.deepEqual(await handleActionClick(PROFILE_TAB), { nothingNew: true });
+
+    assert.deepEqual(callsNamed('setBadgeBackgroundColor').at(-1), { tabId: PROFILE_TAB.id, color: WARNING_COLOR });
+    assert.equal(lastTitle(), 'Hidden Image Downloader: nothing new; videos unavailable (timeout)');
+    assert.match(logText(), /videos: failed {2}reason=timeout\n/);
   });
 
   test('two downloads of one user finishing together both land in the record', async () => {

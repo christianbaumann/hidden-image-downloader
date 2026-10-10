@@ -6,7 +6,7 @@ dependencies:
 
 # Task 10: Profile videos in Videos/
 
-**Status:** In progress (2026-10-10). Not approved: the user's QuickTime check failed (no picture); fixed (see "QuickTime fix"). Open: the user's answers below. Fetch path: the tab gets list, sources and per-video CloudFront values; the offscreen document fetches the stream with them as signed-URL query (no cookies) and remuxes with mux.js (`design.md#j-videos`).
+**Status:** Done (2026-10-10), awaiting the user's QuickTime check and approval. The first QuickTime check failed (no picture); fixed (see "QuickTime fix"). The user's answers below are implemented. Fetch path: the tab gets list, sources and per-video CloudFront values; the offscreen document fetches the stream with them as signed-URL query (no cookies) and remuxes with mux.js (`design.md#j-videos`).
 
 Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP: JoyClub's unencrypted HLS is fetched (highest rendition) and remuxed to mp4; encrypted or unplayable videos are listed in `skipped.txt`.
 
@@ -40,7 +40,7 @@ Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP:
 
 * [x] A fixture profile with one HLS video gives `<Owner>/Videos/<Owner>_Videos_01_<id>.mp4`, a valid mp4
   * **Note:** Verified via E2E "remuxes a profile video…" (entry name, `ftyp`) and the `remuxToMp4` output of the fixture: ffprobe h264 + aac 2.09 s, full ffmpeg decode clean, AVFoundation playable, 1.9 s.
-* [ ] Live: a real profile video in the ZIP plays in QuickTime (manual testing required)
+* [ ] Live: a real profile video in the ZIP plays in QuickTime (manual testing required; first attempt failed, fixed, see "QuickTime fix")
   * **Note:** Automated part done live 2026-10-10 (playwright-cli, extension loaded, user's cookies, profile named by the user): ZIP with 34 photos + 13 videos in 11 s, nothing missing, clean badge; all 13 mp4 h264 + aac at the highest variant (up to 1080×1920); ffmpeg decodes all cleanly; AVFoundation (QuickTime's framework) reports each playable with video and sound track and the right duration (±0.2 s of ffprobe); a second click → "nothing new" (34 photos, 13 videos recorded). Left to the user: open one in QuickTime Player and watch it.
 * [x] An encrypted stream appears in `skipped.txt`, not in the ZIP
   * **Note:** Verified via `tests/unit/zip.test.js` › "an encrypted stream is neither zipped nor missing…" and "creates skipped.txt…". No live stream was encrypted.
@@ -62,8 +62,12 @@ Profile videos go into `Videos/<Owner>_Videos_<nn>_<id>.mp4` in the profile ZIP:
 
 ## User answers (2026-10-10)
 
-* [ ] Expired signed values: build the videos before the photos, and on a 403 ask the tab for fresh values and retry (1a + retry)
-* [ ] Memory: leave as is (2c)
-* [ ] Video list failure: amber badge "videos unavailable (<reason>)" and `log.txt` in the ZIP, like ClubMail (3a)
-* [ ] Badge and tooltip texts: "files" instead of "photos" (4a)
-* [ ] Support fMP4 (`EXT-X-MAP`) and byte-range (`EXT-X-BYTERANGE`) HLS properly (5b)
+* [x] Expired signed values: build the videos before the photos, and on a 403 get fresh values and retry (1a + retry)
+  * **Note:** Deviation: the offscreen document gets the fresh values itself from the video's `signing` URL (with the session cookies, like ClubMail attachments), instead of asking the tab: no round trip, works after the tab closed. Verified via `tests/unit/zip.test.js` › "fetches the videos before the photos…", "expired parameters (403) are renewed once…", "a 403 that fresh parameters do not fix…". Live 2026-10-10: the extension origin (service worker, same cookie rules as the offscreen document) fetched a video's `signing` URL with the session and got all three CloudFront values (200). The 403 itself was not provoked live (needs a 20-min wait).
+* [x] Memory: leave as is (2c)
+* [x] Video list failure: amber badge "videos unavailable (<reason>)" and `log.txt` in the ZIP, like ClubMail (3a)
+  * **Note:** Verified via `tests/integration/background.test.js` › "a failed video list shows the amber warning…", "ClubMail and videos failing together…", "nothing new while the video list failed…"; `tests/unit/profile.test.js` › "flags a failed video fetch…".
+* [x] Badge and tooltip texts: "files" instead of "photos" (4a)
+  * **Note:** Verified via the updated integration and E2E assertions ("n of m files", "1 of 2 files missing").
+* [x] Support fMP4 (`EXT-X-MAP`) and byte-range (`EXT-X-BYTERANGE`) HLS properly (5b)
+  * **Note:** fMP4: init + segments joined without mux.js (`joinFragments`, fragments renumbered, durations zeroed); byte ranges: `Range` header, a whole-file 200 is sliced. Synthetic ffmpeg fixtures `tests/fixtures/video/fmp4/`, `byterange/`. Verified via `tests/unit/hls.test.js`, `tests/unit/zip.test.js` and AVFoundation (both outputs: picture and sound to the end). JoyClub serves neither today.

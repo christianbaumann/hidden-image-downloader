@@ -403,7 +403,7 @@ test('lists a missing album photo in missing.txt and log.txt and warns', async (
   expect(log).toContain(`status=${HTTP_NOT_FOUND}  url=${missingUrl.split('?')[0]}\n`);
   const badge = await badgeState(serviceWorker);
   expect(badge.text).toBe('!');
-  expect(badge.title).toContain('1 of 2 photos missing');
+  expect(badge.title).toContain('1 of 2 files missing');
 });
 
 test('shows "album list unavailable" when the API fails', async ({ page, serviceWorker, imageServer }) => {

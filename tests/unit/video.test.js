@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { VIDEOS_FOLDER, fetchProfileVideos, toVideoEntries, unsupportedVideosLine } from '../../lib/video.js';
+import { VIDEOS_FOLDER, fetchProfileVideos, signedQueryOf, toVideoEntries, unsupportedVideosLine } from '../../lib/video.js';
 import {
-  SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, dataAnswer, guidOf, listAnswer, masterUrlOf, signedAnswer, videoItem,
+  JOYCLUB_ORIGIN, SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, dataAnswer, guidOf, listAnswer, masterUrlOf, signedAnswer, signingUrlOf,
+  videoItem,
 } from '../fixtures/video-api.js';
 
 const USER_ID = '1000001';
@@ -16,7 +17,7 @@ describe('fetchProfileVideos', () => {
   let answers;
 
   const jsonResponse = (body, status = HTTP_OK) => ({ ok: status === HTTP_OK, status, json: async () => body });
-  const pathOf = (url) => url.split('?')[0];
+  const pathOf = (url) => new URL(url, JOYCLUB_ORIGIN).pathname;
 
   beforeEach(() => {
     fetchCalls = [];
@@ -32,18 +33,20 @@ describe('fetchProfileVideos', () => {
       return answer();
     };
     globalThis.document = { body: { dataset: { cacheKiller: CACHE_KILLER } } };
+    globalThis.location = { origin: JOYCLUB_ORIGIN };
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
     delete globalThis.document;
+    delete globalThis.location;
   });
 
   test('returns every video with its master playlist and signed query, in list order', async () => {
     assert.deepEqual(await fetchProfileVideos(USER_ID), {
       videos: [
-        { id: VIDEO_ID_1, source: masterUrlOf(VIDEO_ID_1), query: SIGNED_QUERY },
-        { id: VIDEO_ID_2, source: masterUrlOf(VIDEO_ID_2), query: SIGNED_QUERY },
+        { id: VIDEO_ID_1, source: masterUrlOf(VIDEO_ID_1), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_1) },
+        { id: VIDEO_ID_2, source: masterUrlOf(VIDEO_ID_2), query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_2) },
       ],
     });
   });
@@ -63,7 +66,8 @@ describe('fetchProfileVideos', () => {
 
     const signed = fetchCalls.filter(({ url }) => pathOf(url) === '/aws/aws_signed_cookies');
     assert.equal(signed.length, 2);
-    const params = new URL(signed[0].url, 'https://www.joyclub.de').searchParams;
+    assert.equal(signed[0].url, signingUrlOf(VIDEO_ID_1));
+    const params = new URL(signed[0].url).searchParams;
     assert.equal(params.get('mode'), 'user');
     assert.equal(JSON.parse(params.get('payload')).guid, guidOf(VIDEO_ID_1));
     assert.equal(fetchCalls.some(({ url }) => url.includes('track')), false);
@@ -149,13 +153,14 @@ describe('fetchProfileVideos', () => {
 
 describe('toVideoEntries', () => {
   const OWNER = 'TestOwner';
-  const playable = (id) => ({ id, source: masterUrlOf(id), query: SIGNED_QUERY });
+  const playable = (id) => ({ id, source: masterUrlOf(id), query: SIGNED_QUERY, signing: signingUrlOf(id) });
+  const hlsOf = (id) => ({ query: SIGNED_QUERY, signing: signingUrlOf(id) });
 
-  test('names each video by its list position and id, with the signed query beside the URL', () => {
+  test('names each video by its list position and id, with the signed query and re-sign URL beside the URL', () => {
     assert.deepEqual(toVideoEntries({ videos: [playable(VIDEO_ID_1), playable(VIDEO_ID_2)] }, OWNER), {
       entries: [
-        { url: masterUrlOf(VIDEO_ID_1), name: `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY } },
-        { url: masterUrlOf(VIDEO_ID_2), name: `Videos/TestOwner_Videos_02_${VIDEO_ID_2}.mp4`, videoId: VIDEO_ID_2, hls: { query: SIGNED_QUERY } },
+        { url: masterUrlOf(VIDEO_ID_1), name: `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: hlsOf(VIDEO_ID_1) },
+        { url: masterUrlOf(VIDEO_ID_2), name: `Videos/TestOwner_Videos_02_${VIDEO_ID_2}.mp4`, videoId: VIDEO_ID_2, hls: hlsOf(VIDEO_ID_2) },
       ],
       skipped: '',
     });
@@ -187,6 +192,18 @@ describe('toVideoEntries', () => {
   test('uses the given folder', () => {
     assert.equal(toVideoEntries({ videos: [playable(VIDEO_ID_1)] }, OWNER, 'Clips').entries[0].name, `Clips/TestOwner_Clips_01_${VIDEO_ID_1}.mp4`);
     assert.equal(VIDEOS_FOLDER, 'Videos');
+  });
+});
+
+describe('signedQueryOf', () => {
+  test('turns the three CloudFront cookies into the signed-URL query', () => {
+    assert.equal(signedQueryOf(signedAnswer()), SIGNED_QUERY);
+  });
+
+  test('is empty when a value is missing or the answer is no success', () => {
+    assert.equal(signedQueryOf(signedAnswer({ 'CloudFront-Policy': 'p', 'CloudFront-Signature': 's' })), '');
+    assert.equal(signedQueryOf({ status_code: 500 }), '');
+    assert.equal(signedQueryOf(null), '');
   });
 });
 

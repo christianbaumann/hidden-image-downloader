@@ -16,7 +16,7 @@ import {
   IMAGE_BASE, albumRaw, captionsResult, listResult, profileTextResult, sourcesResult, testUuid,
 } from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
-import { SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, masterUrlOf } from '../fixtures/video-api.js';
+import { SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, masterUrlOf, signingUrlOf } from '../fixtures/video-api.js';
 
 const DATE = new Date(2026, 9, 8, 17, 45, 0);
 const PROFILE_REPORTS = ['profile.md', 'profile.html'];
@@ -488,7 +488,7 @@ describe('toAlbumZipRequest with ClubMail', () => {
 
 describe('toAlbumZipRequest with videos', () => {
   const CLUBMAIL = { origin: ORIGIN, messages: [attachmentMessage('11', 'a1')] };
-  const playable = (id) => ({ id, source: masterUrlOf(id), query: SIGNED_QUERY });
+  const playable = (id) => ({ id, source: masterUrlOf(id), query: SIGNED_QUERY, signing: signingUrlOf(id) });
   const VIDEOS = { videos: [playable(VIDEO_ID_1), { id: VIDEO_ID_2, locked: true }] };
 
   test('puts the videos between the albums and ClubMail, in a Videos folder', () => {
@@ -500,7 +500,7 @@ describe('toAlbumZipRequest with videos', () => {
       'ClubMail/TestOwner_ClubMail_01_a1.jpg',
     ]);
     assert.deepEqual(request.entries[1], {
-      url: masterUrlOf(VIDEO_ID_1), name: `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY },
+      url: masterUrlOf(VIDEO_ID_1), name: `Videos/TestOwner_Videos_01_${VIDEO_ID_1}.mp4`, videoId: VIDEO_ID_1, hls: { query: SIGNED_QUERY, signing: signingUrlOf(VIDEO_ID_1) },
     });
   });
 
@@ -518,6 +518,16 @@ describe('toAlbumZipRequest with videos', () => {
 
     assert.deepEqual(withoutProfile(request.reports), [{ name: 'skipped.txt', text: 'Videos: unavailable (HTTP 500)\n' }]);
     assert.equal(request.entries.length, 1);
+  });
+
+  test('flags a failed video fetch with its reason, and nothing when the videos were read', () => {
+    const failed = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, undefined, { failed: true, reason: 'HTTP 500' });
+    const read = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE, undefined, VIDEOS);
+    const notAsked = toAlbumZipRequest(rawFor({ main: ['1'] }), DATE);
+
+    assert.deepEqual([failed.videosFailed, failed.videosReason], [true, 'HTTP 500']);
+    assert.deepEqual([read.videosFailed, read.videosReason], [false, undefined]);
+    assert.deepEqual([notAsked.videosFailed, notAsked.videosReason], [false, undefined]);
   });
 
   test('a profile with only videos still gives a ZIP', () => {

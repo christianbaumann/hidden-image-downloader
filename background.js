@@ -28,6 +28,7 @@ const OFFSCREEN_JUSTIFICATION = 'Build a ZIP of profile photos and hand it to ch
 const FINISHED_DOWNLOAD_STATES = new Set(['complete', 'interrupted']);
 const DOWNLOAD_COMPLETE = 'complete';
 const CLUBMAIL_UNAVAILABLE = 'ClubMail unavailable';
+const VIDEOS_UNAVAILABLE = 'videos unavailable';
 const WARNING_SEPARATOR = '; ';
 const INJECTION_FAILED_REASON = 'extension could not run on the page';
 const CLUBMAIL_FAILED = { failed: true, reason: INJECTION_FAILED_REASON };
@@ -234,7 +235,7 @@ async function closeOffscreenIfIdle() {
   });
 }
 
-// warning: the click already warns (ClubMail unavailable), so the ZIP gets log.txt even without missing photos.
+// warning: the click already warns (ClubMail or videos unavailable), so the ZIP gets log.txt even without missing files.
 async function buildZipOffscreen(tabId, { root, entries, reports, warning }, log) {
   const jobId = nextZipJobId++;
   zipJobTabs.set(jobId, tabId);
@@ -269,16 +270,24 @@ async function rememberPending(downloadId, userId, record, log) {
   }
 }
 
+// Badge texts for the fetchers that failed without failing the click.
+function fetcherWarnings({ clubMailFailed, clubMailReason, videosFailed, videosReason }) {
+  return [
+    ...(clubMailFailed ? [withReason(CLUBMAIL_UNAVAILABLE, clubMailReason)] : []),
+    ...(videosFailed ? [withReason(VIDEOS_UNAVAILABLE, videosReason)] : []),
+  ];
+}
+
 // The pending record is stored before anything else is awaited, so it is there when the download finishes.
-async function downloadZip(tabId, userId, {
-  zipName, entries, reports = [], clubMailFailed = false, clubMailReason, lastMessageId, profileTextHash,
-}, log) {
+async function downloadZip(tabId, userId, request, log) {
+  const { zipName, entries, reports = [], lastMessageId, profileTextHash } = request;
+  const fetcherFailures = fetcherWarnings(request);
   activeZipJobs++;
   let response;
   let downloadId;
   try {
     const root = zipName.slice(0, -ZIP_EXTENSION.length);
-    response = await buildZipOffscreen(tabId, { root, entries, reports, warning: clubMailFailed }, log);
+    response = await buildZipOffscreen(tabId, { root, entries, reports, warning: fetcherFailures.length > 0 }, log);
     const unsupported = response.unsupported?.length ? `, ${response.unsupported.length} unsupported` : '';
     log.add(`zip: ${response.added} added, ${response.missing.length} missing${unsupported}`);
     downloadId = await startDownload(response.url, zipName);
@@ -292,8 +301,8 @@ async function downloadZip(tabId, userId, {
   const { url, added, missing } = response;
   log.add('download started');
   const warnings = [
-    ...(missing.length > 0 ? [`${missing.length} of ${entries.length} photos missing`] : []),
-    ...(clubMailFailed ? [withReason(CLUBMAIL_UNAVAILABLE, clubMailReason)] : []),
+    ...(missing.length > 0 ? [`${missing.length} of ${entries.length} files missing`] : []),
+    ...fetcherFailures,
   ];
   if (warnings.length > 0) {
     await showWarning(tabId, warnings.join(WARNING_SEPARATOR));
@@ -349,7 +358,7 @@ function onZipProgress(message) {
     return;
   }
   const { done, total } = message;
-  showProgress(tabId, progressBadgeText(done, total), `${done} of ${total} photos`);
+  showProgress(tabId, progressBadgeText(done, total), `${done} of ${total} files`);
 }
 
 function suggestOwnFilename(item, suggest) {
@@ -391,7 +400,7 @@ async function downloadLog(log) {
 }
 
 // full: skip the record of saved files. Nothing new and no new message → no ZIP, neutral badge.
-// Nothing new while ClubMail failed → amber badge and the log as its own download, since no ZIP holds it.
+// Nothing new while ClubMail or the videos failed → amber badge and the log as its own download, since no ZIP holds it.
 async function downloadNewFiles(tabId, userId, request, full, log) {
   const { request: filtered, nothingNew } = filterNewEntries(request, full ? undefined : await readSaved(userId));
   log.add(full ? `files: ${request.entries.length}, full` : `files: ${filtered.entries.length} of ${request.entries.length} new`);
@@ -399,8 +408,9 @@ async function downloadNewFiles(tabId, userId, request, full, log) {
     return downloadZip(tabId, userId, filtered, log);
   }
   log.add(NOTHING_NEW);
-  if (request.clubMailFailed) {
-    await showWarning(tabId, [NOTHING_NEW, withReason(CLUBMAIL_UNAVAILABLE, request.clubMailReason)].join(WARNING_SEPARATOR));
+  const fetcherFailures = fetcherWarnings(request);
+  if (fetcherFailures.length > 0) {
+    await showWarning(tabId, [NOTHING_NEW, ...fetcherFailures].join(WARNING_SEPARATOR));
     await downloadLog(log);
   } else {
     await showNothingNew(tabId);
