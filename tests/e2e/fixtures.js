@@ -67,10 +67,11 @@ function imageFor(pathname) {
 
 // JoyClub's token endpoint, GraphQL API and ClubMail; graphStatus / clubMailStatus other than 200 fail those calls.
 // messages: one page of ClubMail messages. context.route also catches the fetches of the injected fetchers.
-// captions: profileAlbum.image of the captions query; profileText: profileDescription.byUserId (null: none).
+// captions: profileAlbum.image of the captions query; profileText / sedCard: profileDescription.byUserId of the profile text
+// and sed card queries (null: none).
 // videos: ids of the profile's videos (video-api fixture); { id, source: false } is one of a locked FSK18 session.
 export async function routeJoyclubApi(context, {
-  list, sources, captions = null, profileText = null, graphStatus = HTTP_OK, messages = [], clubMailStatus = HTTP_OK,
+  list, sources, captions = null, profileText = null, sedCard = null, graphStatus = HTTP_OK, messages = [], clubMailStatus = HTTP_OK,
   videos = [],
 }) {
   const graphData = {
@@ -78,6 +79,7 @@ export async function routeJoyclubApi(context, {
     getProfileAlbumImageSources: () => ({ profileAlbum: { image: { source: { sourceByImageIdList: { itemList: sources } } } } }),
     getProfileAlbumImageCaptions: () => ({ profileAlbum: { image: captions } }),
     getProfileDescriptionByUserId: () => ({ profileDescription: { byUserId: profileText } }),
+    getProfileSedCardDataByUserId: () => ({ profileDescription: { byUserId: sedCard } }),
   };
   await context.route(CLUBMAIL_LIST_URL, (route) => (clubMailStatus === HTTP_OK
     ? route.fulfill({ json: { content: { message_list: messages, page_up_parameter: null } } })

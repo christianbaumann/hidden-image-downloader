@@ -14,7 +14,7 @@ import {
   missingReport,
 } from '../../lib/profile.js';
 import {
-  IMAGE_BASE, albumRaw, captionsResult, listResult, profileTextResult, sourcesResult, testUuid,
+  IMAGE_BASE, albumRaw, captionsResult, listResult, profileTextResult, sedCardResult, sourcesResult, testUuid,
 } from '../fixtures/album-api.js';
 import { filterNewEntries, savedRecord } from '../../lib/incremental.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
@@ -384,6 +384,48 @@ describe('toAlbumZipRequest profile files', () => {
     assert.notEqual(hash({ motto: 'Hallo' }), hash({ description: 'Hallo' }));
   });
 
+  const SED_CARD = sedCardResult({
+    primary: { properties: { height: 170, hairColor: 'DARK_BLONDE' }, preferences: [{ key: 'TOYS', rating: 'ABSOLUTELY' }] },
+    partner: { properties: { height: 180 } },
+  });
+
+  test('profile.md and profile.html show Steckbrief and Vorlieben with the page\'s pronouns', () => {
+    const request = toAlbumZipRequest(albumRaw({ profileText: PROFILE_TEXT, sedCard: SED_CARD, pageLanguage: 'de', profileGender: 3 }), DATE);
+    const markdown = report(request, 'profile.md');
+
+    assert.ok(markdown.includes('## Steckbrief\n\n### Sie\n\n- **Größe:** 170 cm\n- **Haarfarbe:** Dunkelblond\n\n### Er\n\n- **Größe:** 180 cm\n'));
+    assert.ok(markdown.includes('## Vorlieben\n\n### Sie\n\n- **Unbedingt:** Sexspielzeug\n\n## Albums'));
+    assert.ok(markdown.indexOf('## Profile text') < markdown.indexOf('## Steckbrief'));
+    assert.ok(report(request, 'profile.html').includes('<h2>Steckbrief</h2>\n<h3>Sie</h3>'));
+  });
+
+  test('an English page gets English sed card labels', () => {
+    const markdown = report(toAlbumZipRequest(albumRaw({ sedCard: SED_CARD, pageLanguage: 'en', profileGender: 3 }), DATE), 'profile.md');
+
+    assert.ok(markdown.includes('## Profile\n\n### She\n\n- **Height:** 170 cm\n- **Hair colour:** Dark blonde\n'));
+    assert.ok(markdown.includes('## Preferences\n\n### She\n\n- **Absolutely:** Sex toys\n'));
+  });
+
+  test('a failed sed card call leaves out both sections and keeps the text-only fingerprint', () => {
+    const withoutSedCard = toAlbumZipRequest(albumRaw({ profileText: PROFILE_TEXT, sedCard: null }), DATE);
+    const before = toAlbumZipRequest(albumRaw({ profileText: PROFILE_TEXT }), DATE);
+
+    assert.ok(!report(withoutSedCard, 'profile.md').includes('## Steckbrief'));
+    assert.ok(!report(withoutSedCard, 'profile.md').includes('## Vorlieben'));
+    assert.ok(!report(withoutSedCard, 'profile.html').includes('<h2>Steckbrief</h2>'));
+    assert.equal(withoutSedCard.profileTextHash, before.profileTextHash);
+  });
+
+  test('profileTextHash changes with the sed card, not with the page language, and exists without a text', () => {
+    const hash = (overrides) => toAlbumZipRequest(albumRaw({ profileText: PROFILE_TEXT, ...overrides }), DATE).profileTextHash;
+    const changed = sedCardResult({ primary: { properties: { height: 171, hairColor: 'DARK_BLONDE' } } });
+
+    assert.notEqual(hash({ sedCard: SED_CARD }), hash({}));
+    assert.notEqual(hash({ sedCard: SED_CARD }), hash({ sedCard: changed }));
+    assert.equal(hash({ sedCard: SED_CARD, pageLanguage: 'de' }), hash({ sedCard: SED_CARD, pageLanguage: 'en' }));
+    assert.match(toAlbumZipRequest(albumRaw({ sedCard: SED_CARD }), DATE).profileTextHash, /^[0-9a-f]{8}$/);
+  });
+
   test('an album titled profile.md does not overwrite the report', () => {
     const request = toAlbumZipRequest(rawFor({ main: ['1'], albums: [{ title: 'profile.md', ids: ['2'] }] }), DATE);
 
@@ -727,8 +769,11 @@ describe('fetchProfileAlbums', () => {
   const SOURCES = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: testUuid(2) }]);
   const CAPTIONS = captionsResult([{ id: '101', title: 'Am See' }, { id: '102', hashtags: ['sommer'] }]);
   const PROFILE_TEXT = profileTextResult({ description: 'Hallo' });
+  const SED_CARD = sedCardResult({ primary: { properties: { height: 170 } }, partner: { properties: { height: 180 } } });
+  const COUPLE_GENDER = 3;
   const EXPECTED = {
     owner: 'TestOwner', mainAlbumTitle: 'Fotos von uns', list: LIST, sources: SOURCES, captions: CAPTIONS, profileText: PROFILE_TEXT,
+    sedCard: SED_CARD, pageLanguage: 'de', profileGender: COUPLE_GENDER,
   };
   const TOKEN_REQUEST = 'token';
   const originalFetch = globalThis.fetch;
@@ -752,11 +797,14 @@ describe('fetchProfileAlbums', () => {
   const MAIN_ALBUM_PATH = '/profile/fotoalbum/1000001.testowner.html';
   const REGULAR_ALBUM_PATH = '/profile/fotoalbum/1000001-201.testowner.html';
   const ALBUM_HEADLINE = '.profile-album-detail-page h2.profile-headline';
+  const GENDER_ICON = '.profile-base-info__line-1 j-gender-icon[universal-gender]';
 
   // cards and headline: a value, or (now) => value for a page that is still rendering; the mocked clock starts at 0.
   // headline: the album page's headline text, null when it is not rendered (yet).
+  // gender: the header gender icon's universal-gender attribute, null without the icon.
   function stubDocument({
-    owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD], pathname = PROFILE_PATH, headline = null,
+    owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD], pathname = PROFILE_PATH, headline = null, gender = String(COUPLE_GENDER),
+    lang = 'de',
   } = {}) {
     const anchor = ({ href, title }) => ({
       getAttribute: (name) => (name === 'href' ? href : null),
@@ -766,8 +814,10 @@ describe('fetchProfileAlbums', () => {
     const elements = {
       'h1.profile-base-info__user-name': () => (owner === null ? null : { textContent: owner }),
       [ALBUM_HEADLINE]: () => (at(headline) === null ? null : { textContent: ` ${at(headline)} ` }),
+      [GENDER_ICON]: () => (gender === null ? null : { getAttribute: (name) => (name === 'universal-gender' ? gender : null) }),
     };
     globalThis.document = {
+      documentElement: { lang },
       querySelector: (selector) => elements[selector]?.() ?? null,
       querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? at(cards).map(anchor) : []),
     };
@@ -795,6 +845,7 @@ describe('fetchProfileAlbums', () => {
       getProfileAlbumImageSources: () => jsonResponse(sourcesBody(SOURCES)),
       getProfileAlbumImageCaptions: () => jsonResponse(captionsBody(CAPTIONS)),
       getProfileDescriptionByUserId: () => jsonResponse(profileTextBody(PROFILE_TEXT)),
+      getProfileSedCardDataByUserId: () => jsonResponse(profileTextBody(SED_CARD)),
     };
     globalThis.fetch = async (url, options = {}) => {
       const body = options.body && JSON.parse(options.body);
@@ -812,18 +863,19 @@ describe('fetchProfileAlbums', () => {
     delete globalThis.location;
   });
 
-  test('fetches the token, then album list, sources, captions and profile text', async () => {
+  test('fetches the token, then album list, sources, captions, profile text and sed card', async () => {
     const { result } = await run(fetchProfileAlbums(USER_ID));
 
     assert.deepEqual(result, EXPECTED);
-    const [token, list, sources, captions, text] = [
+    const [token, list, sources, captions, text, sedCard] = [
       TOKEN_REQUEST, 'getProfileAlbumList', 'getProfileAlbumImageSources', 'getProfileAlbumImageCaptions', 'getProfileDescriptionByUserId',
+      'getProfileSedCardDataByUserId',
     ].map(callNamed);
-    assert.equal(fetchCalls.length, 5);
+    assert.equal(fetchCalls.length, 6);
     assert.equal(fetchCalls[0], token);
     assert.equal(token.url, '/webauth/access_token');
     assert.equal(token.credentials, 'include');
-    for (const call of [list, sources, captions, text]) {
+    for (const call of [list, sources, captions, text, sedCard]) {
       assert.equal(call.url, 'https://apiv2.joyclub.com/graph/');
       assert.equal(call.method, 'POST');
       assert.deepEqual(call.headers, { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' });
@@ -834,15 +886,19 @@ describe('fetchProfileAlbums', () => {
     assert.deepEqual(sources.body.variables, { idList: ['101', '102'] });
     assert.deepEqual(captions.body.variables, { idList: ['101', '102'] });
     assert.deepEqual(text.body.variables, { userId: Number(USER_ID) });
+    assert.deepEqual(sedCard.body.variables, { userId: Number(USER_ID) });
+    assert.match(sedCard.body.query, /individualPropertiesPartner \{[^}]*shoeSize/);
+    assert.match(sedCard.body.query, /partnerPreferences \{ key rating \}/);
   });
 
-  test('asks for the profile text while the album list loads', async () => {
+  test('asks for the profile text and the sed card while the album list loads', async () => {
     let resolveList;
     responses.getProfileAlbumList = () => new Promise((resolve) => { resolveList = () => resolve(jsonResponse(listBody(LIST))); });
     const promise = fetchProfileAlbums(USER_ID);
     await new Promise(setImmediate);
 
     assert.ok(callNamed('getProfileDescriptionByUserId'));
+    assert.ok(callNamed('getProfileSedCardDataByUserId'));
     resolveList();
     assert.deepEqual((await run(promise)).result, EXPECTED);
   });
@@ -878,7 +934,24 @@ describe('fetchProfileAlbums', () => {
 
       assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { ...EXPECTED, profileText: null });
     });
+
+    test(`sed card ${name} → sedCard null, the rest stays`, async () => {
+      responses.getProfileSedCardDataByUserId = response;
+
+      assert.deepEqual((await run(fetchProfileAlbums(USER_ID))).result, { ...EXPECTED, sedCard: null });
+    });
   }
+
+  test('reads the page language and a missing or unreadable gender icon as null', async () => {
+    for (const gender of [null, 'x']) {
+      stubDocument({ gender, lang: 'en' });
+
+      const { result } = await run(fetchProfileAlbums(USER_ID));
+
+      assert.equal(result.profileGender, null);
+      assert.equal(result.pageLanguage, 'en');
+    }
+  });
 
   test('every fetch gets an AbortSignal', async () => {
     await run(fetchProfileAlbums(USER_ID));
@@ -1021,7 +1094,7 @@ describe('fetchProfileAlbums', () => {
     const { result } = await run(fetchProfileAlbums(USER_ID));
 
     assert.deepEqual(fetchCalls.map((call) => call.body?.operationName ?? TOKEN_REQUEST).sort(), [
-      'getProfileAlbumList', 'getProfileDescriptionByUserId', TOKEN_REQUEST,
+      'getProfileAlbumList', 'getProfileDescriptionByUserId', 'getProfileSedCardDataByUserId', TOKEN_REQUEST,
     ]);
     assert.deepEqual(result.sources, []);
     assert.equal(result.captions, null);

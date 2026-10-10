@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { IMAGE_BASE, albumRaw, listResult, profileTextResult, testUuid } from '../fixtures/album-api.js';
+import {
+  IMAGE_BASE, albumRaw, listResult, profileTextResult, sedCardResult, testUuid,
+} from '../fixtures/album-api.js';
 import { ME, ORIGIN, PARTNER, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 import { SIGNED_QUERY, VIDEO_ID_1, VIDEO_ID_2, masterUrlOf } from '../fixtures/video-api.js';
 
@@ -1618,6 +1620,24 @@ describe('incremental export', () => {
     const build = buildRequests()[0];
     assert.deepEqual(build.entries, []);
     assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'profile.md', 'profile.html']);
+    assert.notEqual(saved().profileTextHash, firstHash);
+  });
+
+  test('a changed sed card alone zips the profile files', async () => {
+    const sedCard = (height) => sedCardResult({ primary: { properties: { height } } });
+    extracted.fetchProfileAlbums = albumRaw({ sedCard: sedCard(170) });
+    await clickAndFinish();
+    const firstHash = saved().profileTextHash;
+    assert.match(firstHash, /^[0-9a-f]{8}$/);
+    calls = [];
+    extracted.fetchProfileAlbums = albumRaw({ sedCard: sedCard(171) });
+
+    await clickAndFinish();
+
+    const build = buildRequests()[0];
+    assert.deepEqual(build.entries, []);
+    assert.deepEqual(build.reports.map(({ name }) => name), ['skipped.txt', 'profile.md', 'profile.html']);
+    assert.ok(build.reports.find(({ name }) => name === 'profile.md').text.includes('- **Größe:** 171 cm'));
     assert.notEqual(saved().profileTextHash, firstHash);
   });
 

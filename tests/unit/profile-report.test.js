@@ -115,3 +115,72 @@ describe('renderProfileHtml', () => {
     assert.ok(page.includes('#&lt;s&gt;'));
   });
 });
+
+describe('sed card in the profile report', () => {
+  const SED_CARD = {
+    title: 'Steckbrief',
+    preferencesTitle: 'Vorlieben',
+    persons: [
+      {
+        label: 'Sie',
+        properties: [{ label: 'Größe', value: '170 cm' }, { label: 'Haarfarbe', value: 'Dunkelblond' }],
+        preferences: [{ rating: 'Unbedingt', items: ['Sexspielzeug'] }, { rating: 'Steh ich drauf', items: ['Analsex', 'Küssen'] }],
+      },
+      { label: 'Er', properties: [], preferences: [{ rating: 'Situationsabhängig', items: ['Massagen'] }] },
+    ],
+  };
+  const SINGLE = { ...SED_CARD, persons: [{ ...SED_CARD.persons[0], label: null }] };
+  const HOSTILE = {
+    title: '<b>T</b>',
+    preferencesTitle: 'P',
+    persons: [{ label: '<i>L</i>', properties: [{ label: '*x*', value: '<script>' }], preferences: [{ rating: '_r_', items: ['[a](b)'] }] }],
+  };
+
+  test('markdown: Steckbrief and Vorlieben between Profile text and Albums, per person', () => {
+    const markdown = renderProfileMarkdown({ ...PROFILE, sedCard: SED_CARD });
+
+    assert.ok(markdown.includes([
+      '*Sauna*', '', '## Steckbrief', '', '### Sie', '', '- **Größe:** 170 cm', '- **Haarfarbe:** Dunkelblond', '',
+      '## Vorlieben', '', '### Sie', '', '- **Unbedingt:** Sexspielzeug', '- **Steh ich drauf:** Analsex, Küssen', '',
+      '### Er', '', '- **Situationsabhängig:** Massagen', '', '## Albums',
+    ].join('\n')));
+  });
+
+  test('markdown: a single profile has no person heading', () => {
+    const markdown = renderProfileMarkdown({ ...PROFILE, sedCard: SINGLE });
+
+    assert.ok(markdown.includes('## Steckbrief\n\n- **Größe:** 170 cm\n'));
+    assert.ok(markdown.includes('## Vorlieben\n\n- **Unbedingt:** Sexspielzeug\n'));
+  });
+
+  test('markdown: no sed card leaves both sections out', () => {
+    assert.equal(renderProfileMarkdown({ ...PROFILE, sedCard: null }), renderProfileMarkdown(PROFILE));
+  });
+
+  test('markdown escapes every label and value', () => {
+    const markdown = renderProfileMarkdown({ ...PROFILE, sedCard: HOSTILE });
+
+    assert.ok(markdown.includes('## \\<b\\>T\\</b\\>\n\n### \\<i\\>L\\</i\\>\n\n- **\\*x\\*:** \\<script\\>\n'));
+    assert.ok(markdown.includes('- **\\_r\\_:** \\[a\\](b)\n'));
+  });
+
+  test('html: the same sections as lists, before the albums', () => {
+    const html = renderProfileHtml({ ...PROFILE, sedCard: SED_CARD });
+
+    assert.ok(html.includes([
+      '<h2>Steckbrief</h2>', '<h3>Sie</h3>', '<ul>', '<li><strong>Größe:</strong> 170 cm</li>',
+      '<li><strong>Haarfarbe:</strong> Dunkelblond</li>', '</ul>', '<h2>Vorlieben</h2>', '<h3>Sie</h3>', '<ul>',
+      '<li><strong>Unbedingt:</strong> Sexspielzeug</li>', '<li><strong>Steh ich drauf:</strong> Analsex, Küssen</li>', '</ul>',
+      '<h3>Er</h3>', '<ul>', '<li><strong>Situationsabhängig:</strong> Massagen</li>', '</ul>', '<h2>Albums</h2>',
+    ].join('\n')));
+    assert.ok(html.indexOf('<h2>Profile text</h2>') < html.indexOf('<h2>Steckbrief</h2>'));
+  });
+
+  test('html escapes every label and value', () => {
+    const html = renderProfileHtml({ ...PROFILE, sedCard: HOSTILE });
+
+    assert.ok(html.includes('<h2>&lt;b&gt;T&lt;/b&gt;</h2>\n<h3>&lt;i&gt;L&lt;/i&gt;</h3>'));
+    assert.ok(html.includes('<li><strong>*x*:</strong> &lt;script&gt;</li>'));
+    assert.ok(!html.includes('<script>'));
+  });
+});

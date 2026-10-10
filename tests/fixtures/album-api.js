@@ -76,3 +76,30 @@ export function profileTextResult(fields = {}) {
     description: { __typename: 'Description', motto: '', description: '', like: '', dislike: '', ...fields },
   };
 }
+
+const SED_CARD_PROPERTY_FIELDS = [
+  'height', 'weight', 'smoker', 'children', 'hairColor', 'eyeColor', 'appearance', 'bodySize', 'cupSize', 'clothSize', 'shoeSize',
+  'zodiacSign',
+];
+const sedCardProperties = (values) => (values
+  ? { ...Object.fromEntries(SED_CARD_PROPERTY_FIELDS.map((field) => [field, null])), hasBirthdayToday: false, ...values }
+  : null);
+const sedCardInterests = (values) => (values ? { ds: null, sm: null, sexualOrientation: null, ...values } : null);
+
+// Synthetic values in the real shape of getProfileSedCardDataByUserId (research-02); a person without values is null,
+// as on a single profile. primary/partner: { properties?, interests?, preferences?: [{ key, rating }] }
+export function sedCardResult({ primary = {}, partner = null } = {}) {
+  return {
+    __typename: 'ProfileDescription',
+    properties: {
+      __typename: 'UserProperties',
+      individualProperties: sedCardProperties(primary?.properties ?? {}),
+      individualPropertiesPartner: sedCardProperties(partner?.properties),
+    },
+    interests: {
+      individualInterests: sedCardInterests(primary?.interests ?? {}),
+      individualInterestsPartner: sedCardInterests(partner?.interests),
+    },
+    preferences: { primaryPreferences: primary?.preferences ?? [], partnerPreferences: partner?.preferences ?? null },
+  };
+}

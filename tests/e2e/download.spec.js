@@ -3,7 +3,9 @@ import JSZip from 'jszip';
 import {
   test, expect, FSK18_PASSWORD, MISSING_PHOTO_UUID, fsk18StatusPage, routeJoyclubApi,
 } from './fixtures.js';
-import { captionsResult, listResult, profileTextResult, sourcesResult, testUuid } from '../fixtures/album-api.js';
+import {
+  captionsResult, listResult, profileTextResult, sedCardResult, sourcesResult, testUuid,
+} from '../fixtures/album-api.js';
 import { ME, attachmentMessage, textMessage } from '../fixtures/clubmail-api.js';
 import { VIDEO_ID_1, VIDEO_ID_2 } from '../fixtures/video-api.js';
 
@@ -37,6 +39,10 @@ const CLUBMAIL_MESSAGES = [
   attachmentMessage('13', 'e2e-a3', { from: ME }),
 ];
 const PROFILE_TEXT = profileTextResult({ motto: 'Carpe diem', description: '[p]Hallo *wink*[/p][p]<script>alert(1)</script> [b]zwei[/b][/p]' });
+const SED_CARD = sedCardResult({
+  primary: { properties: { height: 170, hairColor: 'DARK_BLONDE' }, preferences: [{ key: 'TOYS', rating: 'ABSOLUTELY' }] },
+  partner: { properties: { height: 180 } },
+});
 const CAPTIONS = captionsResult([{ id: '101', title: 'Am See', hashtags: ['sommer'] }, { id: '102', title: '...' }]);
 const RESTRICTED_ONLY_LIST = listResult({ albums: [{ id: '202', title: 'Lady', restricted: true, imageCount: 9 }] });
 const OTHER_SITE_URL = 'https://example.com/';
@@ -166,7 +172,7 @@ async function serveProfile(page, imageServer, {
 } = {}) {
   const sources = sourcesResult([{ id: '101', uuid: testUuid(1) }, { id: '102', uuid: secondUuid }], imageServer.base);
   await routeJoyclubApi(page.context(), {
-    list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, graphStatus, messages, clubMailStatus, videos,
+    list, sources, captions: CAPTIONS, profileText: PROFILE_TEXT, sedCard: SED_CARD, graphStatus, messages, clubMailStatus, videos,
   });
   const html = await fixture('profile.html', { __IMAGE_URL__: `${imageServer.base}/image.webp` });
   await serve(page, PROFILE_URL, fsk18Status ? html.replace('<body ', `<body data-session-fsk18-status="${fsk18Status}" `) : html);
@@ -260,7 +266,10 @@ test('writes profile.md and profile.html whose links open the photos in the ZIP'
   expect(markdown).toMatch(/^# TestOwner\nExported \d{4}-\d{2}-\d{2} \d{2}:\d{2} · 2 photos\n/);
   expect(markdown).toContain('### Motto\n\nCarpe diem\n\n### About\n\nHallo \\*wink\\*\n\n\\<script\\>alert(1)\\</script\\> **zwei**\n');
   expect(markdown).toContain('- [Am See](Fotos-von-uns/TestOwner_Fotos-von-uns_01_Am-See_00000001.jpg)\n  #sommer\n');
+  expect(markdown).toContain('## Steckbrief\n\n### Sie\n\n- **Größe:** 170 cm\n- **Haarfarbe:** Dunkelblond\n\n### Er\n\n- **Größe:** 180 cm\n');
+  expect(markdown).toContain('## Vorlieben\n\n### Sie\n\n- **Unbedingt:** Sexspielzeug\n\n## Albums');
   const html = await zipText(serviceWorker, result, 'profile.html');
+  expect(html).toContain('<h2>Steckbrief</h2>\n<h3>Sie</h3>');
   expect(html).toContain('<p>&lt;script&gt;alert(1)&lt;/script&gt; <strong>zwei</strong></p>');
   expect(html).not.toContain('<script');
   expect(html).not.toMatch(/(?:src|href)="(?:https?:)?\/\//);

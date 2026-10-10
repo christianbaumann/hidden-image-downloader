@@ -17,18 +17,33 @@ dependencies:
 
 ## Work
 
-* [ ] Live check: one single profile (partner fields `null`?), a profile with `bodySize`/`cupSize`/`clothSize`/`shoeSize` set, the gender in the page's embedded data, the English labels next to the de-DE ones; record in `research-02-sed-card.md`
-* [ ] Translation module with de-DE and English tables, chosen by page language (German fallback); person labels "Sie"/"Er" from the page data, else "Person 1"/"Person 2"
-* [ ] Fetch: `loadSedCard(token)` in the `Promise.all` of `loadAlbums`, `null` on any failure
-* [ ] Render `## Steckbrief` and `## Vorlieben` between "Profile text" and "Albums" in both reports (escaped like the other sections)
-* [ ] Fold the data into the `profileTextHash` input
-* [ ] Unit tests (data, `null`, escaping, fingerprint change) and E2E routing for the new operation
-* [ ] Update `README.md` and `CLAUDE.md`
+* [x] Live check: one single profile (partner fields `null`?), a profile with `bodySize`/`cupSize`/`clothSize`/`shoeSize` set, the gender in the page's embedded data, the English labels next to the de-DE ones; record in `research-02-sed-card.md`
+  **Note:** Done for the own couple profile, the page data and JoyClub's bundle (research-02 "Live check (task 07)"): gender from the header `j-gender-icon[universal-gender]` (the server JSON is gone after Vue mounts), pronoun mapping and field order from the bundle, sizes shown raw by JoyClub, en-GB labels from the logged-out `www.joyclub.com/en/` bundle. Not checked: a single profile and a profile with sizes set; reading other members' sed cards in bulk was refused by the session's permission classifier (PII).
+* [x] Translation module with de-DE and English tables, chosen by page language (German fallback); person labels "Sie"/"Er" from the page data, else "Person 1"/"Person 2"
+  **Note:** `lib/sed-card.js` (`sedCardData`, `toSedCard`).
+* [x] Fetch: `loadSedCard(token)` in the `Promise.all` of `loadAlbums`, `null` on any failure
+* [x] Render `## Steckbrief` and `## Vorlieben` between "Profile text" and "Albums" in both reports (escaped like the other sections)
+* [x] Fold the data into the `profileTextHash` input
+* [x] Unit tests (data, `null`, escaping, fingerprint change) and E2E routing for the new operation
+* [x] Update `README.md` and `CLAUDE.md`
 
 ## Verification
 
-* [ ] A profile ZIP's `profile.md`/`profile.html` list Steckbrief and Vorlieben as readable text
-* [ ] An English page gives English labels; a single profile shows one person
-* [ ] A failing sed card call leaves the sections out and does not fail the ZIP
-* [ ] A changed sed card alone gives an incremental ZIP with the profile files
-* [ ] `npm test` and `npm run test:e2e` pass
+* [x] A profile ZIP's `profile.md`/`profile.html` list Steckbrief and Vorlieben as readable text
+  **Note:** Verified via E2E `writes profile.md and profile.html whose links open the photos in the ZIP` and live: own couple profile ZIP with the extension, both sections per person, no raw enum codes (research-02).
+* [x] An English page gives English labels; a single profile shows one person
+  **Note:** Verified via `tests/unit/sed-card.test.js` (`an English page gets the English table`, `a single profile shows one person without a label`) and `tests/unit/profile.test.js` (`an English page gets English sed card labels`). Live: neither a logged-in English page nor a single profile was available (see Work).
+* [x] A failing sed card call leaves the sections out and does not fail the ZIP
+  **Note:** Verified via `sed card <failure> → sedCard null, the rest stays` and `a failed sed card call leaves out both sections and keeps the text-only fingerprint` (`tests/unit/profile.test.js`).
+* [x] A changed sed card alone gives an incremental ZIP with the profile files
+  **Note:** Verified via integration test `a changed sed card alone zips the profile files`.
+* [x] `npm test` and `npm run test:e2e` pass
+
+## Deviation from the design
+
+* Gender source: not the "data embedded in the profile page's HTML" (`div.profile_vue[data-profile-view-model]`, removed when Vue mounts, before any injected script runs) but the rendered header icon `.profile-base-info__line-1 j-gender-icon[universal-gender]`, present on profile, overview and album pages.
+* Person labels follow JoyClub's full mapping instead of only "Sie"/"Er": male couples "Er 1"/"Er 2", female couples "Sie 1"/"Sie 2", other couples and an unknown gender "Person 1"/"Person 2". A single profile (single gender code, or no gender and no partner data) shows one person without a heading.
+* `bodySize`, `cupSize`, `clothSize`, `shoeSize` get JoyClub's labels; the value stays raw, since JoyClub's card shows it raw as well.
+* `hasBirthdayToday` is left out of the report and the fingerprint: it would change the fingerprint on the birthday and back the next day.
+* English section headings are JoyClub's "Profile" and "Preferences".
+* The fingerprint input stays the text fields alone when there is no sed card, so a failed sed card call does not count as a change.
