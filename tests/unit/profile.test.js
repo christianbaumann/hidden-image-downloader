@@ -698,36 +698,27 @@ describe('fetchProfileAlbums', () => {
   const PROFILE_PATH = '/profile/1000001.testowner.html';
   const MAIN_ALBUM_PATH = '/profile/fotoalbum/1000001.testowner.html';
   const REGULAR_ALBUM_PATH = '/profile/fotoalbum/1000001-201.testowner.html';
-  const DOCUMENT_POSITION_FOLLOWING = 4;
-  const ACCOUNT_HEADLINE = { text: 'Account', beforePhotos: true };
+  const ALBUM_HEADLINE = '.profile-album-detail-page h2.profile-headline';
 
-  // cards: an array, or (now) => array for a page that is still rendering; the mocked clock starts at 0.
-  // headlines: [{ text, beforePhotos }] in document order; photos: whether the page has an a.album-link.
+  // cards and headline: a value, or (now) => value for a page that is still rendering; the mocked clock starts at 0.
+  // headline: the album page's headline text, null when it is not rendered (yet).
   function stubDocument({
-    owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD], pathname = PROFILE_PATH, headlines = [], photos = true,
+    owner = ' TestOwner ', cards = [REGULAR_CARD, MAIN_CARD], pathname = PROFILE_PATH, headline = null,
   } = {}) {
     const anchor = ({ href, title }) => ({
       getAttribute: (name) => (name === 'href' ? href : null),
       querySelector: (selector) => (selector === '.title' ? { textContent: ` ${title} ` } : null),
     });
-    const headline = ({ text, beforePhotos }) => ({
-      textContent: ` ${text} `,
-      compareDocumentPosition: () => (beforePhotos ? DOCUMENT_POSITION_FOLLOWING : 2),
-    });
-    const cardsAt = typeof cards === 'function' ? cards : () => cards;
+    const at = (value) => (typeof value === 'function' ? value(Date.now()) : value);
     const elements = {
-      'h1.profile-base-info__user-name': owner === null ? null : { textContent: owner },
-      'a.album-link': photos ? {} : null,
+      'h1.profile-base-info__user-name': () => (owner === null ? null : { textContent: owner }),
+      [ALBUM_HEADLINE]: () => (at(headline) === null ? null : { textContent: ` ${at(headline)} ` }),
     };
     globalThis.document = {
-      querySelector: (selector) => elements[selector] ?? null,
-      querySelectorAll: (selector) => ({
-        'a.profile-album-card__link': () => cardsAt(Date.now()).map(anchor),
-        'h2.profile-headline': () => headlines.map(headline),
-      })[selector]?.() ?? [],
+      querySelector: (selector) => elements[selector]?.() ?? null,
+      querySelectorAll: (selector) => (selector === 'a.profile-album-card__link' ? at(cards).map(anchor) : []),
     };
     globalThis.location = { pathname };
-    globalThis.window = { Node: { DOCUMENT_POSITION_FOLLOWING } };
   }
 
   // Advances the mocked clock until the fetcher settles; resolves with its result and the elapsed time.
@@ -766,7 +757,6 @@ describe('fetchProfileAlbums', () => {
     globalThis.fetch = originalFetch;
     delete globalThis.document;
     delete globalThis.location;
-    delete globalThis.window;
   });
 
   test('fetches the token, then album list, sources, captions and profile text', async () => {
@@ -897,12 +887,8 @@ describe('fetchProfileAlbums', () => {
     assert.ok(elapsed >= TITLE_STABLE_MS && elapsed < TITLE_STABLE_MS + 2 * TITLE_POLL_MS);
   });
 
-  test('a main album page takes the last headline before the photos at once', async () => {
-    stubDocument({
-      pathname: MAIN_ALBUM_PATH,
-      cards: [],
-      headlines: [ACCOUNT_HEADLINE, { text: 'Fotos von uns', beforePhotos: true }, { text: 'Kommentare', beforePhotos: false }],
-    });
+  test('a main album page takes its headline at once', async () => {
+    stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [], headline: 'Fotos von uns' });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
@@ -910,23 +896,30 @@ describe('fetchProfileAlbums', () => {
     assert.ok(elapsed < TITLE_POLL_MS);
   });
 
-  test('a main album page without photos takes its last headline', async () => {
-    stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [], photos: false, headlines: [ACCOUNT_HEADLINE, { text: 'Fotos von uns' }] });
+  test('a main album page waits for a late headline while the API calls run', async () => {
+    const TOKEN_DELAY_MS = 1000;
+    const HEADLINE_APPEARS_MS = 400;
+    const token = responses[TOKEN_REQUEST];
+    responses[TOKEN_REQUEST] = () => new Promise((resolve) => setTimeout(() => resolve(token()), TOKEN_DELAY_MS));
+    stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [], headline: (now) => (now < HEADLINE_APPEARS_MS ? null : 'Fotos von uns') });
 
-    assert.equal((await run(fetchProfileAlbums(USER_ID))).result.mainAlbumTitle, 'Fotos von uns');
+    const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
+
+    assert.equal(result.mainAlbumTitle, 'Fotos von uns');
+    assert.ok(elapsed >= TOKEN_DELAY_MS && elapsed < TOKEN_DELAY_MS + TITLE_POLL_MS);
   });
 
-  test('a main album page without headline gives an empty title at once', async () => {
+  test('a main album page without headline gives an empty title once the API calls are done', async () => {
     stubDocument({ pathname: MAIN_ALBUM_PATH, cards: [] });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
     assert.equal(result.mainAlbumTitle, '');
-    assert.ok(elapsed < TITLE_POLL_MS);
+    assert.ok(elapsed <= TITLE_POLL_MS);
   });
 
   test('a regular album page gives an empty main title at once, not its own headline', async () => {
-    stubDocument({ pathname: REGULAR_ALBUM_PATH, cards: [], headlines: [ACCOUNT_HEADLINE, { text: 'Aktuelles', beforePhotos: true }] });
+    stubDocument({ pathname: REGULAR_ALBUM_PATH, cards: [], headline: 'Aktuelles' });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
@@ -935,7 +928,7 @@ describe('fetchProfileAlbums', () => {
   });
 
   test('an album overview page waits for the main card like the profile page', async () => {
-    stubDocument({ pathname: '/profile/fotos/1000001.testowner.html', headlines: [{ text: 'Fotos', beforePhotos: true }] });
+    stubDocument({ pathname: '/profile/fotos/1000001.testowner.html', headline: 'Fotos' });
 
     const { result, elapsed } = await run(fetchProfileAlbums(USER_ID));
 
