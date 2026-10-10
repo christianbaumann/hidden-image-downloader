@@ -18,7 +18,7 @@ dependencies:
 ## Work
 
 * [x] Live check: one single profile (partner fields `null`?), a profile with `bodySize`/`cupSize`/`clothSize`/`shoeSize` set, the gender in the page's embedded data, the English labels next to the de-DE ones; record in `research-02-sed-card.md`
-  **Note:** Done for the own couple profile, the page data and JoyClub's bundle (research-02 "Live check (task 07)"): gender from the header `j-gender-icon[universal-gender]` (the server JSON is gone after Vue mounts), pronoun mapping and field order from the bundle, sizes shown raw by JoyClub, en-GB labels from the logged-out `www.joyclub.com/en/` bundle. Not checked: a single profile and a profile with sizes set; reading other members' sed cards in bulk was refused by the session's permission classifier (PII).
+  **Note:** Done for the own couple profile, the page data and JoyClub's bundle (research-02 "Live check (task 07)"): gender from the header `j-gender-icon[universal-gender]` (the server JSON is gone after Vue mounts), pronoun mapping and field order from the bundle, sizes shown raw by JoyClub, en-GB labels from the logged-out `www.joyclub.com/en/` bundle, then compared live against JoyClub's logged-in English profile page (all labels, values, persons, ratings and 115 preference items match; research-02 "Logged-in English page"). Not checked: a single profile and a profile with sizes set; reading other members' sed cards in bulk was refused by the session's permission classifier (PII); the user chose to leave both to unit tests.
 * [x] Translation module with de-DE and English tables, chosen by page language (German fallback); person labels "Sie"/"Er" from the page data, else "Person 1"/"Person 2"
   **Note:** `lib/sed-card.js` (`sedCardData`, `toSedCard`).
 * [x] Fetch: `loadSedCard(token)` in the `Promise.all` of `loadAlbums`, `null` on any failure
@@ -32,7 +32,7 @@ dependencies:
 * [x] A profile ZIP's `profile.md`/`profile.html` list Steckbrief and Vorlieben as readable text
   **Note:** Verified via E2E `writes profile.md and profile.html whose links open the photos in the ZIP` and live: own couple profile ZIP with the extension, both sections per person, no raw enum codes (research-02).
 * [x] An English page gives English labels; a single profile shows one person
-  **Note:** Verified via `tests/unit/sed-card.test.js` (`an English page gets the English table`, `a single profile shows one person without a label`) and `tests/unit/profile.test.js` (`an English page gets English sed card labels`). Live: neither a logged-in English page nor a single profile was available (see Work).
+  **Note:** Verified via `tests/unit/sed-card.test.js` (`an English page gets the English table`, `a single profile shows one person without a label`) and `tests/unit/profile.test.js` (`an English page gets English sed card labels`). Live 2026-10-10 (playwright-cli): English labels match JoyClub's logged-in English page of the own profile (research-02 "Logged-in English page"). A single profile stays unit-tested only (user decision, see Work). The English site's export itself fails because of a separate `/en/` path bug (`.agents/backlog.md`).
 * [x] A failing sed card call leaves the sections out and does not fail the ZIP
   **Note:** Verified via `sed card <failure> → sedCard null, the rest stays` and `a failed sed card call leaves out both sections and keeps the text-only fingerprint` (`tests/unit/profile.test.js`).
 * [x] A changed sed card alone gives an incremental ZIP with the profile files
